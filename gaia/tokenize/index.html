@@ -1,0 +1,108 @@
+<html>
+
+<head>
+    <title>Contract Interface</title>
+</head>
+
+<body>
+    <script type="text/javascript" src="./js/main.js"></script>
+    <label>User account:</label><br />
+    <input id="textUserAccount" size="40"><br />
+    <label>Ethereum balance:</label><br />
+    <input id="textUserBalance" size="40"><br />
+    <button onclick="refreshBalance()">Connect Wallet</button>
+    <button onclick="deployPropertyToken()">Deploy</button><br />
+    <br />
+    <label>Unique name:</label><br />
+    <input id="propertyTokenName" size="40"><br />
+    <label>PropertyToken's address:</label><br />
+    <input id="propertyTokenAddress" size="40"><br />
+    <button onclick="whitelistPropertyToken()">Whitelist</button>
+    <button onclick="isWhitelist()">Is Whitelisted ?</button><br />
+    <pre id="log" style="width: 100%;"></pre>
+    <script type="text/javascript">
+        var newInterface = null;
+        var account = null;
+        var Convert = "0x6243be10b5caaf29a1f6b660b3d555dc34f81685";
+        var EscrowPayment = "0x4779283df0ad68da174d4e15a9d33589d6e566ff";
+        var ExchangeStable = "0x3720e2f957ebf5c3915f63bfa4ac482c461ebecf";
+        var PropertyToken = null;
+        var SafeMath = "0x5956db091a0c4bdb01775e0b87839cd8af8ab85a";
+        var StableCoin = "0x1f3171d1f5100e4386ca5c7ec0b2bfda595dd4f1";
+        var Whitelist = "0x901c8d90e66b759b08b200088391e524389d8371";
+        var log = "";
+        //Runtime check
+        if (typeof (window.ContractInterface) !== 'undefined') {
+            function logMe(input) {
+                log += input + '\n';
+                document.getElementById('log').innerText = log;
+            }
+
+            function refreshBalance() {
+                if (newInterface !== null) return;
+                newInterface = new ContractInterface();
+                newInterface.init((error, value) => {
+                    if (!error) {
+                        logMe('Accounts: ' + JSON.stringify(value));
+                        textUserAccount.value = value[0];
+                        account = value[0];
+                        newInterface.getBalance(value[0], (err, value) => {
+                            if (!err) {
+                                logMe('Balance in wei: ' + value.valueOf());
+                                textUserBalance.value = value.div('1e+18').valueOf();
+                            }
+                        });
+                    }
+                });
+            }
+
+            function deployPropertyToken() {
+                if (newInterface === null) return;
+                return newInterface.deployPropertyToken(account, account, newInterface.utilities.scenarios.PROPERTY_TOKEN_SCENARIO_ALL, Whitelist, function (err, newPropertyToken) {
+                    if (!err) {
+                        if (typeof (newPropertyToken.address) === 'undefined') {
+                            logMe('Deploy PropertyToken in transaction: ' + newPropertyToken.transactionHash.valueOf());
+                        } else {
+                            logMe('PropertyToken deployed at: ' + newPropertyToken.address.valueOf());
+                            propertyTokenAddress.value = newPropertyToken.address.valueOf();
+                        }
+                    }
+                });
+            }
+
+            function whitelistPropertyToken() {
+                if (newInterface === null) return;
+                let whitelistInstance = newInterface.load('Whitelist', Whitelist);
+
+                whitelistInstance.add(propertyTokenName.value, propertyTokenAddress.value, function (err, transactionHash) {
+                    if (!err) {
+                        logMe('Add PropertyToken to Whitelist at: ' + transactionHash.valueOf());
+                    }
+                });
+            }
+
+            function isWhitelist() {
+                if (newInterface === null) return;
+                let whitelistInstance = newInterface.load('Whitelist', Whitelist);
+                whitelistInstance.verified(propertyTokenAddress.value, function (err, result) {
+                    if (!err) {
+                        logMe('Is PropertyToken at (' + propertyTokenAddress.value + ') whitelisted : ' + result.valueOf());
+                    }
+                });
+            }
+
+            setInterval(function () {
+                propertyTokenName.value = "RS_PROPERTY_" + (((Math.random() * 0xffffffff) | 0) >>> 0).toString(16);
+            }, 1000);
+
+            propertyTokenName.value = "RS_PROPERTY_" + (((Math.random() * 0xffffffff) | 0) >>> 0).toString(16);
+
+            refreshBalance();
+
+        } else {
+            throw new Error('Contract interface was not loaded');
+        }
+    </script>
+</body>
+
+</html>
