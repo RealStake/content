@@ -2,6 +2,15 @@
 
 <head>
     <title>Contract Interface</title>
+    <style>
+        * {
+            margin: 5px;
+        }
+        input {
+            padding: 5px;
+            border: 1px solid gray;
+        }
+    </style>
 </head>
 
 <body>
@@ -10,7 +19,7 @@
     <input id="textUserAccount" size="40"><br />
     <label>Ethereum balance:</label><br />
     <input id="textUserBalance" size="40"><br />
-    <button onclick="refreshBalance()">Connect Wallet</button>
+    <button onclick="connectWallet()">Connect Wallet</button>
     <button onclick="deployPropertyToken()">Deploy</button><br />
     <br />
     <label>Unique name:</label><br />
@@ -23,24 +32,30 @@
     <script type="text/javascript">
         var newInterface = null;
         var account = null;
-        var Convert = "0x6243be10b5caaf29a1f6b660b3d555dc34f81685";
         var EscrowPayment = "0x4779283df0ad68da174d4e15a9d33589d6e566ff";
         var ExchangeStable = "0x3720e2f957ebf5c3915f63bfa4ac482c461ebecf";
-        var PropertyToken = null;
-        var SafeMath = "0x5956db091a0c4bdb01775e0b87839cd8af8ab85a";
         var StableCoin = "0x1f3171d1f5100e4386ca5c7ec0b2bfda595dd4f1";
         var Whitelist = "0x901c8d90e66b759b08b200088391e524389d8371";
-        var log = "";
+        var dataLog = "";
+
+        //Renew token name
+        function renewTokenName() {
+            propertyTokenName.value = "RS_PROPERTY_" + (((Math.random() * 0xffffffff) | 0) >>> 0).toString(16);
+        }
+
+        //Data log
+        function logMe(input) {
+            dataLog += input + '\n';
+            document.getElementById('log').innerText = dataLog;
+        }
+
         //Runtime check
         if (typeof (window.ContractInterface) !== 'undefined') {
-            function logMe(input) {
-                log += input + '\n';
-                document.getElementById('log').innerText = log;
-            }
-
-            function refreshBalance() {
+            function connectWallet() {
                 if (newInterface !== null) return;
+                //Create new Contract Interface
                 newInterface = new ContractInterface();
+                //Init contract interface
                 newInterface.init((error, value) => {
                     if (!error) {
                         logMe('Accounts: ' + JSON.stringify(value));
@@ -52,31 +67,77 @@
                                 textUserBalance.value = value.div('1e+18').valueOf();
                             }
                         });
+                        //Register callbacks to handle transaction confirmation
+                        newInterface.registerCallbacks({
+                            checkWhitelistDone: function (error, confirmed, result) {
+                                if (!error) {
+                                    if (confirmed) {
+                                        logMe('Whitelist transcation was confirmed in block: ' + result.blockNumber + " blockhash: " + result.blockHash);
+                                        console.log(result);
+                                    } else {
+                                        logMe('Waiting for whitelist transaction to be mined.');
+                                    }
+                                }
+                                else {
+                                    logMe('Token whitelist failed: ' + error.message);
+                                }
+                            },
+                            checkTokenizeDone: function (error, confirmed, result) {
+                                if (!error) {
+                                    if (confirmed) {
+                                        logMe('Tokenize transcation was confirmed in block: ' + result.blockNumber + " blockhash: " + result.blockHash);
+                                        console.log(result);
+                                        if (typeof (result.contractAddress) !== 'undefined') {
+                                            logMe('[Double check]PropertyToken deployed at: ' + result.contractAddress.valueOf());
+                                            propertyTokenAddress.value = result.contractAddress.valueOf();
+                                            renewTokenName();
+                                        }
+                                    } else {
+                                        logMe('Waiting for tokenize transaction to be mined.');
+                                    }
+                                }
+                                else {
+                                    logMe('Tokenize failed: ' + error.message);
+                                }
+                            }
+                        }).watch();
                     }
                 });
             }
 
             function deployPropertyToken() {
                 if (newInterface === null) return;
-                return newInterface.deployPropertyToken(account, account, newInterface.utilities.scenarios.PROPERTY_TOKEN_SCENARIO_ALL, Whitelist, function (err, newPropertyToken) {
-                    if (!err) {
-                        if (typeof (newPropertyToken.address) === 'undefined') {
-                            logMe('Deploy PropertyToken in transaction: ' + newPropertyToken.transactionHash.valueOf());
-                        } else {
-                            logMe('PropertyToken deployed at: ' + newPropertyToken.address.valueOf());
-                            propertyTokenAddress.value = newPropertyToken.address.valueOf();
+                //Clear old data
+                propertyTokenAddress.value = '';
+                //Trigger deploy method
+                return newInterface.deployPropertyToken(account,
+                    account,
+                    newInterface.utilities.scenarios.PROPERTY_TOKEN_SCENARIO_ALL,
+                    Whitelist,
+                    function (err, newPropertyToken) {
+                        if (!err) {
+                            if (typeof (newPropertyToken.address) === 'undefined') {
+                                renewTokenName();
+                                logMe('Deploy PropertyToken in transaction: ' + newPropertyToken.transactionHash.valueOf());
+                                newInterface.registerTx('checkTokenizeDone', newPropertyToken.transactionHash.valueOf()).watch();
+                            } else {
+                                logMe('PropertyToken deployed at: ' + newPropertyToken.address.valueOf());
+                                propertyTokenAddress.value = newPropertyToken.address.valueOf();
+                            }
                         }
-                    }
-                });
+                    });
             }
 
             function whitelistPropertyToken() {
                 if (newInterface === null) return;
                 let whitelistInstance = newInterface.load('Whitelist', Whitelist);
-
+                renewTokenName();
+                //Trigger Whitelist.add(bytes32 _name, addres _address);
                 whitelistInstance.add(propertyTokenName.value, propertyTokenAddress.value, function (err, transactionHash) {
                     if (!err) {
                         logMe('Add PropertyToken to Whitelist at: ' + transactionHash.valueOf());
+                        newInterface.registerTx('checkWhitelistDone', transactionHash.valueOf()).watch();
+                        renewTokenName();
                     }
                 });
             }
@@ -91,13 +152,8 @@
                 });
             }
 
-            setInterval(function () {
-                propertyTokenName.value = "RS_PROPERTY_" + (((Math.random() * 0xffffffff) | 0) >>> 0).toString(16);
-            }, 1000);
-
-            propertyTokenName.value = "RS_PROPERTY_" + (((Math.random() * 0xffffffff) | 0) >>> 0).toString(16);
-
-            refreshBalance();
+            renewTokenName();
+            connectWallet();
 
         } else {
             throw new Error('Contract interface was not loaded');
