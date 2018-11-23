@@ -5,29 +5,56 @@
     <style>
         * {
             margin: 5px;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+        pre {
+            background: black;
+            color: white;
+            font-family: 'Courier New', Courier, monospace;
+            padding: 10px;
+            position: fixed;
+            top: 0px;
+            left: 350px;
+            width: 50%;
+            height: 100%;
+            margin: 0px;
         }
         input {
             padding: 5px;
             border: 1px solid gray;
         }
+        
     </style>
 </head>
 
 <body>
     <script type="text/javascript" src="./js/main.js"></script>
+    <h2>Account info</h2>
     <label>User account:</label><br />
     <input id="textUserAccount" size="40"><br />
     <label>Ethereum balance:</label><br />
     <input id="textUserBalance" size="40"><br />
     <button onclick="connectWallet()">Connect Wallet</button>
+    <hr />
+    <h2>Tokenize</h2>
+    <label>Owner account:</label><br />
+    <input id="textTokenOwner" size="40"><br />
     <button onclick="deployPropertyToken()">Deploy</button><br />
-    <br />
+    <hr />
+    <h2>Whitelist</h2>
     <label>Unique name:</label><br />
     <input id="propertyTokenName" size="40"><br />
     <label>PropertyToken's address:</label><br />
     <input id="propertyTokenAddress" size="40"><br />
     <button onclick="whitelistPropertyToken()">Whitelist</button>
-    <button onclick="isWhitelist()">Is Whitelisted ?</button><br />
+    <button onclick="readWhitelist()">Read whitelist data</button><br />
+    <hr />
+    <h2>Primary Sale</h2>
+    <label>PropertyToken address:</label><br />
+    <input id="primarySaleTokenAddress" size="40"><br />
+    <button onclick="allowInternalTransfer()">Allow Exchange use fund</button>
+    <button onclick="startPrimarySale()">Start primary sale</button>
+    <hr />
     <pre id="log" style="width: 100%;"></pre>
     <script type="text/javascript">
         var newInterface = null;
@@ -37,6 +64,8 @@
         var StableCoin = "0x1f3171d1f5100e4386ca5c7ec0b2bfda595dd4f1";
         var Whitelist = "0x901c8d90e66b759b08b200088391e524389d8371";
         var dataLog = "";
+        var wl = null;
+        var pt = null;
 
         //Renew token name
         function renewTokenName() {
@@ -45,64 +74,197 @@
 
         //Data log
         function logMe(input) {
-            dataLog += input + '\n';
+            dataLog = input + '\n' + dataLog;
             document.getElementById('log').innerText = dataLog;
         }
 
+        //function primarySell(address _tokenOwner, address _tokenAddress, uint128 _type, uint128 _duration, uint256 _amount, uint256 _price, uint256 _minimum)
+
         //Runtime check
         if (typeof (window.ContractInterface) !== 'undefined') {
-            function connectWallet() {
-                if (newInterface !== null) return;
-                //Create new Contract Interface
-                newInterface = new ContractInterface();
-                //Init contract interface
-                newInterface.init((error, value) => {
-                    if (!error) {
-                        logMe('Accounts: ' + JSON.stringify(value));
-                        textUserAccount.value = value[0];
-                        account = value[0];
-                        newInterface.getBalance(value[0], (err, value) => {
+
+            function allowInternalTransfer() {
+                if (newInterface === null) return;
+                if (primarySaleTokenAddress.value.length !== 42) {
+                    logMe('Invalid PropertyToken address');
+                    return;
+                }
+                (async function () {
+                    let propertyTokenInstance = newInterface.load('PropertyToken', primarySaleTokenAddress.value);
+                    //Is exchange able to use fund
+                    let allowed = await propertyTokenInstance.sync.allowedInternalTransfer(ExchangeStable);
+                    logMe('Is exchange able to use PropertyToken fund? ' + allowed.valueOf());
+                    if (!allowed) {
+                        propertyTokenInstance.allowInternalTransfer(ExchangeStable, function (err, transactionHash) {
                             if (!err) {
-                                logMe('Balance in wei: ' + value.valueOf());
-                                textUserBalance.value = value.div('1e+18').valueOf();
+                                logMe('Allow exchange use PropretyToken at: ' + transactionHash.valueOf());
+                                newInterface.registerTx('checkInternalTransfer', transactionHash.valueOf()).watch();
+                                renewTokenName();
                             }
                         });
-                        //Register callbacks to handle transaction confirmation
-                        newInterface.registerCallbacks({
-                            checkWhitelistDone: function (error, confirmed, result) {
-                                if (!error) {
-                                    if (confirmed) {
-                                        logMe('Whitelist transcation was confirmed in block: ' + result.blockNumber + " blockhash: " + result.blockHash);
-                                        console.log(result);
-                                    } else {
-                                        logMe('Waiting for whitelist transaction to be mined.');
-                                    }
+                    }
+                })();
+            }
+
+            function startPrimarySale() {
+                if (newInterface === null) return;
+                (async function () {
+                    if (primarySaleTokenAddress.value.length !== 42) {
+                        logMe('Invalid PropertyToken address');
+                        return;
+                    }
+                    let propertyTokenInstance = newInterface.load('PropertyToken', primarySaleTokenAddress.value);
+                    //Is exchange able to use fund
+                    let allowed = await propertyTokenInstance.sync.allowedInternalTransfer(ExchangeStable);
+                    logMe('Is exchange able to use PropertyToken fund? ' + allowed.valueOf());
+                    if (allowed) {
+                        let exchangeStableInstance = newInterface.load('ExchangeStable', ExchangeStable);
+                        exchangeStableInstance.primarySell(textTokenOwner.value,                            //Property owner
+                            primarySaleTokenAddress.value,                                                  //Property token
+                            newInterface.utilities.createOfferType({                                        //Offer type
+                                ask: true,
+                                whole: false,
+                                available: true,
+                                primary: true
+                            }),
+                            0,                                          //Duration
+                            1000000,                                    //Amount
+                            web3.toBigNumber("0.12").mul("1e+18"),      //Price $0.12
+                            1000,
+                            function (err, transactionHash) {
+                                if (!err) {
+                                    logMe('Start pimary sale at: ' + transactionHash.valueOf());
+                                    newInterface.registerTx('checkPrimarySale', transactionHash.valueOf()).watch();
+                                    renewTokenName();
                                 }
-                                else {
-                                    logMe('Token whitelist failed: ' + error.message);
-                                }
-                            },
-                            checkTokenizeDone: function (error, confirmed, result) {
-                                if (!error) {
-                                    if (confirmed) {
-                                        logMe('Tokenize transcation was confirmed in block: ' + result.blockNumber + " blockhash: " + result.blockHash);
-                                        console.log(result);
-                                        if (typeof (result.contractAddress) !== 'undefined') {
-                                            logMe('[Double check]PropertyToken deployed at: ' + result.contractAddress.valueOf());
-                                            propertyTokenAddress.value = result.contractAddress.valueOf();
-                                            renewTokenName();
+                            });                                      //Minimum
+                    } else {
+                        logMe('Please allow exchange to move fund first.');
+                    }
+                })();
+                //Minimum
+            }
+
+            function connectWallet() {
+                (async function () {
+                    if (newInterface !== null) return;
+
+                    //Create new interface of contract
+                    newInterface = new ContractInterface();
+
+                    //Init Cotract Interface
+                    let accounts = await newInterface.init();
+
+                    if (accounts.length > 0) {
+                        logMe('Accounts: ' + JSON.stringify(accounts));
+                        textUserAccount.value = newInterface.defaultAccount;
+                        textTokenOwner.value = newInterface.defaultAccount;
+                        //Request for balance
+                        let balance = await newInterface.getBalance(newInterface.defaultAccount);
+                        if (balance !== null) {
+                            textUserBalance.value = balance.div('1e+18').valueOf();
+                            logMe('Balance in wei: ' + balance.valueOf());
+                        }
+                    }
+
+                    //Dev only
+                    wl = newInterface.load('Whitelist', Whitelist);
+                    pt = newInterface.load('PropertyToken', '0x6a4933fe26b0c1595a947da017dc946fc24599eb');
+
+                    //Register callbacks to handle transaction confirmation
+                    newInterface.registerCallbacks({
+                        checkPrimarySale: function (error, confirmed, result) {
+                            if (!error) {
+                                if (confirmed) {
+                                    logMe('Start primary sale transaction was confirmed in block: ' + result.blockNumber + " blockhash: " + result.blockHash);
+                                    let events = newInterface.parseEvents('ExchangeStable', result);
+                                    let success = false;
+                                    for (let i = 0; i < events.length; i++) {
+                                        if (events[i].transactionHash == result.transactionHash && events[i].event === 'PrimarySell(address,uint256,address,uint128,uint128,uint256,uint256,uint256)') {
+                                            logMe('[SUCCESS] Transaction' + events[i].transactionHash + ' emit event ' + events[i].event);
+                                            success = true;
+                                            //Un watch this transaction hash
+                                            newInterface.unWatch(result.transactionHash);
                                         }
-                                    } else {
-                                        logMe('Waiting for tokenize transaction to be mined.');
                                     }
-                                }
-                                else {
-                                    logMe('Tokenize failed: ' + error.message);
+                                    if (!success) {
+                                        logMe('[FAIL] Error occurred');
+                                    }
+                                } else {
+                                    logMe('Waiting for start primary sale transaction to be mined.');
                                 }
                             }
-                        }).watch();
-                    }
-                });
+                            else {
+                                logMe('Start primary sale transaction was not confimed: ' + error.message);
+                            }
+                        },
+                        checkInternalTransfer: function (error, confirmed, result) {
+                            if (!error) {
+                                if (confirmed) {
+                                    logMe('Allow internal transfer transaction was confirmed in block: ' + result.blockNumber + " blockhash: " + result.blockHash);
+                                    (async function () {
+                                        let propertyTokenInstance = newInterface.load('PropertyToken', primarySaleTokenAddress.value);
+                                        //Is exchange able to use fund
+                                        let allowed = await propertyTokenInstance.sync.allowedInternalTransfer(ExchangeStable);
+                                        if (allowed.valueOf()) {
+                                            newInterface.unWatch(result.transactionHash);
+                                            logMe('[SUCCESS] Exchange was allowed to move fund.');
+                                        }
+                                    })();
+                                } else {
+                                    logMe('Waiting for allow internal transfer transaction to be mined.');
+                                }
+                            }
+                            else {
+                                logMe('Allow internal transfer transaction: ' + error.message);
+                            }
+                        },
+                        checkWhitelistDone: function (error, confirmed, result) {
+                            if (!error) {
+                                if (confirmed) {
+                                    logMe('Whitelist transaction was confirmed in block: ' + result.blockNumber + " blockhash: " + result.blockHash);
+                                    let events = newInterface.parseEvents('Whitelist', result);
+                                    let success = false;
+                                    for (let i = 0; i < events.length; i++) {
+                                        if (events[i].transactionHash == result.transactionHash && events[i].event === 'Add(uint256,bytes32,address)') {
+                                            logMe('[SUCCESS] Transaction' + events[i].transactionHash + ' emit event ' + events[i].event);
+                                            success = true;
+                                            //Un watch this transaction hash
+                                            newInterface.unWatch(result.transactionHash);
+                                        }
+                                    }
+                                    if (!success) {
+                                        logMe('[FAIL] Error occurred');
+                                    }
+                                } else {
+                                    logMe('Waiting for whitelist transaction to be mined.');
+                                }
+                            }
+                            else {
+                                logMe('Whitelist transaction was not confimed: ' + error.message);
+                            }
+                        },
+                        checkTokenizeDone: function (error, confirmed, result) {
+                            if (!error) {
+                                if (confirmed) {
+                                    logMe('Tokenize transcation was confirmed in block: ' + result.blockNumber + " blockhash: " + result.blockHash);
+                                    if (typeof (result.contractAddress) !== 'undefined') {
+                                        logMe('[Double check]PropertyToken deployed at: ' + result.contractAddress.valueOf());
+                                        primarySaleTokenAddress.value = result.contractAddress.valueOf();
+                                        propertyTokenAddress.value = result.contractAddress.valueOf();
+                                        newInterface.unWatch(result.transactionHash);
+                                        renewTokenName();
+                                    }
+                                } else {
+                                    logMe('Waiting for tokenize transaction to be mined.');
+                                }
+                            }
+                            else {
+                                logMe('Tokenize failed: ' + error.message);
+                            }
+                        }
+                    }).watch();
+                })();
             }
 
             function deployPropertyToken() {
@@ -110,8 +272,8 @@
                 //Clear old data
                 propertyTokenAddress.value = '';
                 //Trigger deploy method
-                return newInterface.deployPropertyToken(account,
-                    account,
+                return newInterface.deployPropertyToken(newInterface.defaultAccount, //Deployer
+                    textTokenOwner.value, //Owner
                     newInterface.utilities.scenarios.PROPERTY_TOKEN_SCENARIO_ALL,
                     Whitelist,
                     function (err, newPropertyToken) {
@@ -142,19 +304,29 @@
                 });
             }
 
-            function isWhitelist() {
-                if (newInterface === null) return;
-                let whitelistInstance = newInterface.load('Whitelist', Whitelist);
-                whitelistInstance.verified(propertyTokenAddress.value, function (err, result) {
-                    if (!err) {
-                        logMe('Is PropertyToken at (' + propertyTokenAddress.value + ') whitelisted : ' + result.valueOf());
+            function readWhitelist() {
+                (async function () {
+                    if (newInterface === null) return;
+                    let whitelistInstance = newInterface.load('Whitelist', Whitelist);
+                    let total = await whitelistInstance.sync.totalVerified();
+                    logMe('Read 5 latest records from Whitelist');
+                    for (let i = ((total - 5) < 0) ? 0 : (total - 5); i < total.toNumber(); i++) {
+                        let name = await whitelistInstance.sync.ordering(i);
+                        let address = await whitelistInstance.sync.addressBook(name);
+                        let verified = await whitelistInstance.sync.verified(address);
+                        logMe([
+                            i,
+                            newInterface.utilities.bytesToString(name.valueOf()),
+                            address.valueOf(),
+                            verified.valueOf()
+                        ].join('    '));
                     }
-                });
+                    logMe('No    Token Name                         Token Address                                 Verified');
+                })();
             }
 
             renewTokenName();
             connectWallet();
-
         } else {
             throw new Error('Contract interface was not loaded');
         }
