@@ -66,6 +66,7 @@
     <input id="textAmount" onchange="onChangeAmount()" size="40"><br />
     <label>Estimate value:</label> <label id="estimated">$0</label><br />
     <button onclick="loadAskOffer()">Load Ask Offer</button>
+    <button onclick="isAbleToBuy()">Check current buyer</button>
     <button onclick="takePrimaryAskOffer()">Take Primary Ask Offer</button>
     <h3>Manager Approve or Refund Transaction</h3>
     <label>Escrow Transaction ID</label><br />
@@ -77,13 +78,14 @@
     <script type="text/javascript">
         var newInterface = null;
         var account = null;
-        var Convert = "0xae28c2b983a8d05e4e53506ffe6b43ff917d77f9";
-        var EscrowPayment = "0xaa55db3e477ab6ac8e0873779d17c83faccf4888";
-        var ExchangeStable = "0xc012047ddf2fdbd9ecaf305ad00af8c1810dcc0e";
-        var PropertyToken = "0x72106a1d1537a3ea20068963ccc36e5bcd27a81e";
-        var SafeMath = "0xa657c3676dd4606fa9f97015f7b85d573029bb41";
-        var StableCoin = "0xc122bb2435e32affe9ced6033de9f21d803e002f";
-        var Whitelist = "0x3ebba17cdec56f0e0332aff26fc05811045d0f5f";
+        //New contracts
+        var Convert = '0x30e33600e5f69bc2bc7430db39c183ea9a7dad03';
+        var EscrowPayment = '0xe2859aa2cc263717743900261bda2000fb098a20';
+        var ExchangeStable = '0xbdae309cf146f7076adca1fe711768a4ae1d015f';
+        var PropertyToken = '0x9b781a8397b21d911d796eb47da7eb62fe4ffe29';
+        var SafeMath = '0x6b2f166df5e100bcb7fa79032c9bce700b182c6d';
+        var StableCoin = '0x2334fe216c385f5b11530c6219b2eb88499d8b00';
+        var Whitelist = '0x2cfb2263542a37b24c7a6b1adb25e28eed3313ae';
         var dataLog = "";
         var offerData = null;
         var wl = null;
@@ -117,6 +119,66 @@
         //Runtime check
         if (typeof (window.ContractInterface) !== 'undefined') {
 
+            function isAbleToBuy() {
+                if (newInterface === null) return;
+                var buyer = newInterface.defaultAccount;
+                var offerID = textOfferId.value;
+                (async () => {
+                    let data = await es.sync.offerData(newInterface.toBigNumber(offerID));
+                    let token = newInterface.load('PropertyToken', data[0]);
+                    //Is owner verified
+                    if (await wl.sync.verified(data[1])) {
+                        logMe('[INFO] Owner was verified');
+                    } else {
+                        logMe('[ERROR] Owner wasn\'t verified');
+                    }
+                    //Is buyer verified
+                    if (await wl.sync.verified(buyer)) {
+                        logMe('[INFO] Buyer was verified');
+                    } else {
+                        logMe('[ERROR] Buyer wasn\'t verified');
+                    }
+                    //Is PropertyToken verified
+                    if (await wl.sync.verified(data[0])) {
+                        logMe('[INFO] PropertyToken was verified');
+                    } else {
+                        logMe('[ERROR] PropertyToken wasn\'t verified');
+                    }
+                    //Is Exchange verified
+                    if (await wl.sync.verified(ExchangeStable)) {
+                        logMe('[INFO] Exchange was verified');
+                    } else {
+                        logMe('[ERROR] Exchange wasn\'t verified');
+                    }
+                    //Is Escrow verified
+                    if (await wl.sync.verified(EscrowPayment)) {
+                        logMe('[INFO] EscrowPayment was verified');
+                    } else {
+                        logMe('[ERROR] EscrowPayment wasn\'t verified');
+                    }
+                    //Is ProfitPool verified
+                    if (await wl.sync.verified(await es.sync.profitPool())) {
+                        logMe('[INFO] ProfitPool was verified');
+                    } else {
+                        logMe('[ERROR] ProfitPool wasn\'t verified');
+                    }
+                    //Is buyer delegate their StableCoin
+                    let delegateSC = await sc.sync.allowance(buyer, ExchangeStable);
+                    if (delegateSC.gt(0)) {
+                        logMe('[INFO] Buyer was delegate: ' + delegateSC.div('1e+18').valueOf() + ' RUSD');
+                    } else {
+                        logMe('[ERROR] Buyer wasn\'t delegate their StableCoin');
+                    }
+                    //Is PropertyToken was delegate to exchange
+                    if ((await token.sync.allowedInternalTransfer(ExchangeStable))) {
+                        logMe('[INFO] Manager was delegate owner PropertyToken to Exchange');
+                    }
+                    else {
+                        logMe('[ERROR] Manager wasn\'t delegate owner PropertyToken to Exchange');
+                    }
+                })();
+
+            }
 
             function connectWallet() {
                 (async function () {
@@ -346,7 +408,7 @@
                                 available: true,
                                 primary: true
                             }),
-                            0,                                                  //Duration
+                            259200,                                             //Duration 3 days in secs
                             1000000,                                            //Amount
                             newInterface.toBigNumber("0.12").mul("1e+18"),      //Price $0.12
                             1000,
