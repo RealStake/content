@@ -68,24 +68,29 @@
     <button onclick="loadAskOffer()">Load Ask Offer</button>
     <button onclick="isAbleToBuy()">Check current buyer</button>
     <button onclick="takePrimaryAskOffer()">Take Primary Ask Offer</button>
+    <hr />
     <h3>Manager Approve or Refund Transaction</h3>
     <label>Escrow Transaction ID</label><br />
     <input id="textEscrowTransactionID" size="40"><br />
     <button onclick="listAllEscrowTransaction()">List all escrow transactions</button>
     <button onclick="approveEscrowTransaction()">Approve</button>
     <button onclick="refundEscrowTransaction()">Refund</button>
+    <hr />
+    <h3>Unfreeze PropertyToken</h3>
+    <label>Token addresss</label><br />
+    <input id="textUnfreezePropertyToken" size="40"><br />
+    <button onclick="unfreezePropertyToken()">Unfreeze PropertyToken</button>
+    <hr />
+    <h3>Approve & Refund all Escrow Transactions</h3>
+    <label>Escrow Transaction IDs (example: 1,2,4,5,6):</label><br />
+    <input id="textListEscrowTransactionID" size="40"><br />
+    <button onclick="approveAllEscrowTransaction()">Approve All</button>
+    <button onclick="refundAllEscrowTransaction()">Refund All</button>
     <pre id="log" style="width: 100%;"></pre>
     <script type="text/javascript">
         var newInterface = null;
         var account = null;
         //New contracts
-        var Convert = '0x30e33600e5f69bc2bc7430db39c183ea9a7dad03';
-        var EscrowPayment = '0xe2859aa2cc263717743900261bda2000fb098a20';
-        var ExchangeStable = '0xbdae309cf146f7076adca1fe711768a4ae1d015f';
-        var PropertyToken = '0x9b781a8397b21d911d796eb47da7eb62fe4ffe29';
-        var SafeMath = '0x6b2f166df5e100bcb7fa79032c9bce700b182c6d';
-        var StableCoin = '0x2334fe216c385f5b11530c6219b2eb88499d8b00';
-        var Whitelist = '0x2cfb2263542a37b24c7a6b1adb25e28eed3313ae';
         var dataLog = "";
         var offerData = null;
         var wl = null;
@@ -145,13 +150,13 @@
                         logMe('[ERROR] PropertyToken wasn\'t verified');
                     }
                     //Is Exchange verified
-                    if (await wl.sync.verified(ExchangeStable)) {
+                    if (await wl.sync.verified(newInterface.contracts.ExchangeStable)) {
                         logMe('[INFO] Exchange was verified');
                     } else {
                         logMe('[ERROR] Exchange wasn\'t verified');
                     }
                     //Is Escrow verified
-                    if (await wl.sync.verified(EscrowPayment)) {
+                    if (await wl.sync.verified(newInterface.contracts.EscrowPayment)) {
                         logMe('[INFO] EscrowPayment was verified');
                     } else {
                         logMe('[ERROR] EscrowPayment wasn\'t verified');
@@ -163,14 +168,14 @@
                         logMe('[ERROR] ProfitPool wasn\'t verified');
                     }
                     //Is buyer delegate their StableCoin
-                    let delegateSC = await sc.sync.allowance(buyer, ExchangeStable);
+                    let delegateSC = await sc.sync.allowance(buyer, newInterface.contracts.ExchangeStable);
                     if (delegateSC.gt(0)) {
                         logMe('[INFO] Buyer was delegate: ' + delegateSC.div('1e+18').valueOf() + ' RUSD');
                     } else {
                         logMe('[ERROR] Buyer wasn\'t delegate their StableCoin');
                     }
                     //Is PropertyToken was delegate to exchange
-                    if ((await token.sync.allowedInternalTransfer(ExchangeStable))) {
+                    if ((await token.sync.allowedInternalTransfer(newInterface.contracts.ExchangeStable))) {
                         logMe('[INFO] Manager was delegate owner PropertyToken to Exchange');
                     }
                     else {
@@ -188,7 +193,7 @@
                     newInterface = new ContractInterface();
 
                     //Init Cotract Interface
-                    let accounts = await newInterface.init();
+                    let accounts = await newInterface.init(); //default is rinkeby
 
                     if (accounts.length > 0) {
                         logMe('Accounts: ' + JSON.stringify(accounts));
@@ -203,11 +208,11 @@
                     }
 
                     //Dev only
-                    wl = newInterface.load('Whitelist', Whitelist);
-                    pt = newInterface.load('PropertyToken', '0x6a4933fe26b0c1595a947da017dc946fc24599eb');
-                    es = newInterface.load('ExchangeStable', ExchangeStable);
-                    sc = newInterface.load('StableCoin', StableCoin);
-                    ep = newInterface.load('EscrowPayment', EscrowPayment);
+                    wl = newInterface.load('Whitelist');
+                    pt = newInterface.load('PropertyToken');
+                    es = newInterface.load('ExchangeStable');
+                    sc = newInterface.load('StableCoin');
+                    ep = newInterface.load('EscrowPayment');
 
                     newInterface.registerCallback(function (job, txHash, error, confirmed, result) {
                         if (!error) {
@@ -215,6 +220,11 @@
                                 let events = newInterface.getEvents(result);
                                 logMe('    was confirmed in block: ' + result.blockNumber + " blockhash: " + result.blockHash);
                                 logMe('[' + job + '] Transaction ' + result.transactionHash);
+                                let txIDs = textListEscrowTransactionID.value
+                                    .split(',')                                              //Split string to array
+                                    .map(it => it.trim())                                    //Trim spaces
+                                    .filter((it, pos, self) => self.indexOf(it) === pos)     //Filter duplicated
+                                    .map(it => newInterface.toBigNumber(it));                //Convert to big integer
                                 console.log(result, events);
                                 //All job handler
                                 switch (job) {
@@ -234,7 +244,7 @@
                                     case 'checkInternalTransfer':
                                         (async function () {
                                             let propertyTokenInstance = newInterface.load('PropertyToken', primarySaleTokenAddress.value);
-                                            if (await propertyTokenInstance.sync.allowedInternalTransfer(ExchangeStable)) {
+                                            if (await propertyTokenInstance.sync.allowedInternalTransfer(newInterface.contracts.ExchangeStable)) {
                                                 logMe('[SUCCESS] Exchange was allowed to move PropertyToken fund.');
                                                 newInterface.unWatch(result.transactionHash);
                                             }
@@ -254,8 +264,8 @@
                                         break;
                                     case 'checkAllowExchangeUseStableCoin':
                                         (async function () {
-                                            let stablecoinInstance = newInterface.load('StableCoin', StableCoin);
-                                            if ((await stablecoinInstance.sync.allowance(newInterface.defaultAccount, ExchangeStable)).gt(0)) {
+                                            let stablecoinInstance = newInterface.load('StableCoin');
+                                            if ((await stablecoinInstance.sync.allowance(newInterface.defaultAccount, newInterface.contracts.ExchangeStable)).gt(0)) {
                                                 logMe('[SUCCESS] Exchange was allowed to move StableCoin fund.');
                                                 newInterface.unWatch(result.transactionHash);
                                             }
@@ -270,6 +280,40 @@
                                     case 'checkRefundEscrowTransaction':
                                         if (events.filter(i => i.event.contract === 'EscrowPayment' && i.event.name === 'Refund').length > 0) {
                                             logMe('[SUCCESS] Event emitted `Whitelist.Refund`');
+                                            newInterface.unWatch(result.transactionHash);
+                                        }
+                                        break;
+                                    case 'checkApproveAllEscrowTransaction':
+                                        if (events.filter(i => i.event.contract === 'EscrowPayment' && i.event.name === 'Approve').length > 0) {
+                                            logMe('[SUCCESS] Event emitted `EscrowPayment.Approve(' + events.filter(i => i.event.contract === 'EscrowPayment' && i.event.name === 'Approve').length + ') times`');
+                                            newInterface.unWatch(result.transactionHash);
+                                        }else{
+                                            (async () => {
+                                                let escrowPaymentInstance = newInterface.load('EscrowPayment');
+                                                if((await escrowPaymentInstance.sync.pendingTransactions(txIDs[0]))[5]){
+                                                    logMe('[SUCCESS] trigger `EscrowPayment.ApproveAll`');
+                                                    newInterface.unWatch(result.transactionHash);
+                                                }
+                                            })();
+                                        }
+                                        break;
+                                    case 'checkRefundAllEscrowTransaction':
+                                        if (events.filter(i => i.event.contract === 'EscrowPayment' && i.event.name === 'Refund').length > 0) {
+                                            logMe('[SUCCESS] Event emitted `Whitelist.Refund(' + events.filter(i => i.event.contract === 'EscrowPayment' && i.event.name === 'Refund').length + ') times`');
+                                            newInterface.unWatch(result.transactionHash);
+                                        }else{
+                                            (async () => {
+                                                let escrowPaymentInstance = newInterface.load('EscrowPayment');
+                                                if((await escrowPaymentInstance.sync.pendingTransactions(txIDs[0]))[5]){
+                                                    logMe('[SUCCESS] trigger `EscrowPayment.RefundAll`');
+                                                    newInterface.unWatch(result.transactionHash);
+                                                }
+                                            })();
+                                        }
+                                        break;
+                                    case 'checkUnfreezeTransaction':
+                                        if (events.filter(i => i.event.contract === 'PropertyToken' && i.event.name === 'Unpause').length > 0) {
+                                            logMe('[SUCCESS] Event emitted `PropertyToken.Unpause`');
                                             newInterface.unWatch(result.transactionHash);
                                         }
                                         break;
@@ -293,7 +337,7 @@
                 return newInterface.deployPropertyToken(newInterface.defaultAccount, //Deployer
                     textTokenOwner.value, //Owner
                     newInterface.utilities.scenarios.PROPERTY_TOKEN_SCENARIO_ALL,
-                    Whitelist,
+                    newInterface.contracts.Whitelist,
                     function (err, newPropertyToken) {
                         if (!err) {
                             if (typeof (newPropertyToken.address) === 'undefined') {
@@ -311,7 +355,7 @@
                     logMe('Invalid address to whitelist.');
                     return;
                 }
-                let whitelistInstance = newInterface.load('Whitelist', Whitelist);
+                let whitelistInstance = newInterface.load('Whitelist');
                 (async function () {
                     if (await whitelistInstance.sync.verified(propertyTokenAddress.value)) {
                         logMe('Address is whitelisted');
@@ -331,7 +375,7 @@
             function readWhitelist() {
                 (async function () {
                     if (newInterface === null) return;
-                    let whitelistInstance = newInterface.load('Whitelist', Whitelist);
+                    let whitelistInstance = newInterface.load('Whitelist');
                     let total = await whitelistInstance.sync.totalVerified();
                     let totalVerified = total.toNumber();
                     logMe('Read 5 latest records from Whitelist');
@@ -359,10 +403,10 @@
                 (async function () {
                     let propertyTokenInstance = newInterface.load('PropertyToken', primarySaleTokenAddress.value);
                     //Is exchange able to use fund
-                    let allowed = await propertyTokenInstance.sync.allowedInternalTransfer(ExchangeStable);
+                    let allowed = await propertyTokenInstance.sync.allowedInternalTransfer(newInterface.contracts.ExchangeStable);
                     logMe('Is exchange able to use PropertyToken fund? ' + allowed.valueOf());
                     if (!allowed) {
-                        propertyTokenInstance.allowInternalTransfer(ExchangeStable, function (err, transactionHash) {
+                        propertyTokenInstance.allowInternalTransfer(newInterface.contracts.ExchangeStable, function (err, transactionHash) {
                             if (!err) {
                                 logMe('Allow exchange use PropretyToken at: ' + transactionHash.valueOf());
                                 newInterface.registerTx('checkInternalTransfer', transactionHash.valueOf()).watch();
@@ -376,8 +420,8 @@
             function allowExchangeUseStableCoin() {
                 if (newInterface === null) return;
                 (async function () {
-                    let stablecoinInstance = newInterface.load('StableCoin', StableCoin);
-                    stablecoinInstance.approve(ExchangeStable, newInterface.toBigNumber(textAmountStableCoin.value).mul('1e+18'), function (err, transactionHash) {
+                    let stablecoinInstance = newInterface.load('StableCoin');
+                    stablecoinInstance.approve(newInterface.contracts.ExchangeStable, newInterface.toBigNumber(textAmountStableCoin.value).mul('1e+18'), function (err, transactionHash) {
                         if (!err) {
                             logMe('Allow exchange use PropretyToken at: ' + transactionHash.valueOf());
                             newInterface.registerTx('checkAllowExchangeUseStableCoin', transactionHash.valueOf()).watch();
@@ -396,10 +440,10 @@
                     }
                     let propertyTokenInstance = newInterface.load('PropertyToken', primarySaleTokenAddress.value);
                     //Is exchange able to use fund
-                    let allowed = await propertyTokenInstance.sync.allowedInternalTransfer(ExchangeStable);
+                    let allowed = await propertyTokenInstance.sync.allowedInternalTransfer(newInterface.contracts.ExchangeStable);
                     logMe('Is exchange able to use PropertyToken fund? ' + allowed.valueOf());
                     if (allowed) {
-                        let exchangeStableInstance = newInterface.load('ExchangeStable', ExchangeStable);
+                        let exchangeStableInstance = newInterface.load('ExchangeStable');
                         exchangeStableInstance.primarySell(textTokenOwner.value,                            //Property owner
                             primarySaleTokenAddress.value,                                                  //Property token
                             newInterface.utilities.createOfferType({                                        //Offer type
@@ -428,7 +472,7 @@
             function loadAskOffer() {
                 if (newInterface === null) return;
                 (async function () {
-                    let exchangeInstance = newInterface.load('ExchangeStable', ExchangeStable);
+                    let exchangeInstance = newInterface.load('ExchangeStable');
                     offerData = await exchangeInstance.sync.offerData(newInterface.toBigNumber(textOfferId.value));
                     logMe('        Token      :    ' + offerData[0]);
                     logMe('        Maker      :    ' + offerData[1]);
@@ -450,9 +494,9 @@
             function takePrimaryAskOffer() {
                 if (newInterface === null || offerData === null) return;
                 (async function () {
-                    let whitelistInstance = newInterface.load('Whitelist', Whitelist);
-                    let exchangeInstance = newInterface.load('ExchangeStable', ExchangeStable);
-                    let stablecoinInstance = newInterface.load('StableCoin', StableCoin);
+                    let whitelistInstance = newInterface.load('Whitelist');
+                    let exchangeInstance = newInterface.load('ExchangeStable');
+                    let stablecoinInstance = newInterface.load('StableCoin');
                     let amount = newInterface.toBigNumber(textAmount.value);
                     document.getElementById('estimated').innerHTML = '$' + amount.mul(offerData[6]).div('1e+18');
                     if (!(await whitelistInstance.sync.verified(newInterface.defaultAccount)).valueOf()) {
@@ -471,7 +515,7 @@
             function listAllEscrowTransaction() {
                 if (newInterface === null) return;
                 (async function () {
-                    let escrowInstance = newInterface.load('EscrowPayment', EscrowPayment);
+                    let escrowInstance = newInterface.load('EscrowPayment');
                     let totalTransaction = await escrowInstance.sync.totalTransaction();
                     //BigNumber to number
                     let totalTx = totalTransaction.toNumber();
@@ -492,7 +536,7 @@
 
             function approveEscrowTransaction() {
                 if (newInterface === null) return;
-                let escrowInstance = newInterface.load('EscrowPayment', EscrowPayment);
+                let escrowInstance = newInterface.load('EscrowPayment');
                 escrowInstance.approve(newInterface.toBigNumber(textEscrowTransactionID.value), function (err, transactionHash) {
                     if (!err) {
                         logMe('Approve escrow transaction: ' + transactionHash.valueOf());
@@ -503,11 +547,60 @@
 
             function refundEscrowTransaction() {
                 if (newInterface === null) return;
-                let escrowInstance = newInterface.load('EscrowPayment', EscrowPayment);
+                let escrowInstance = newInterface.load('EscrowPayment');
                 escrowInstance.refund(newInterface.toBigNumber(textEscrowTransactionID.value), function (err, transactionHash) {
                     if (!err) {
                         logMe('Refund escrow transaction: ' + transactionHash.valueOf());
                         newInterface.registerTx('checkRefundEscrowTransaction', transactionHash.valueOf()).watch();
+                    }
+                });
+            }
+
+            function unfreezePropertyToken() {
+                (async () => {
+                    if (newInterface === null) return;
+                    let propertyTokenInstance = newInterface.load('PropertyToken', textUnfreezePropertyToken.value);
+                    if (!await propertyTokenInstance.sync.paused()) {
+                        logMe('PropertyToken was not paused');
+                        return;
+                    }
+                    propertyTokenInstance.unpause(function (err, transactionHash) {
+                        if (!err) {
+                            logMe('Unfreeze PropertyToken at (' + textUnfreezePropertyToken.value + ') : ' + transactionHash.valueOf());
+                            newInterface.registerTx('checkUnfreezeTransaction', transactionHash.valueOf()).watch();
+                        }
+                    });
+                })();
+            }
+
+            function approveAllEscrowTransaction() {
+                if (newInterface === null) return;
+                let escrowInstance = newInterface.load('EscrowPayment');
+                let txIDs = textListEscrowTransactionID.value
+                    .split(',')                                              //Split string to array
+                    .map(it => it.trim())                                    //Trim spaces
+                    .filter((it, pos, self) => self.indexOf(it) === pos)     //Filter duplicated
+                    .map(it => newInterface.toBigNumber(it));                //Convert to big integer
+                escrowInstance.approveAll(txIDs, function (err, transactionHash) {
+                    if (!err) {
+                        logMe('Approve all escrow transactions: ' + transactionHash.valueOf());
+                        newInterface.registerTx('checkApproveAllEscrowTransaction', transactionHash.valueOf()).watch();
+                    }
+                });
+            }
+
+            function refundAllEscrowTransaction() {
+                if (newInterface === null) return;
+                let escrowInstance = newInterface.load('EscrowPayment', newInterface.contracts.EscrowPayment);
+                let txIDs = textListEscrowTransactionID.value
+                    .split(',')                                              //Split string to array
+                    .map(it => it.trim())                                    //Trim spaces
+                    .filter((it, pos, self) => self.indexOf(it) === pos)     //Filter duplicated
+                    .map(it => newInterface.toBigNumber(it));                //Convert to big integer
+                escrowInstance.refundAll(txIDs, function (err, transactionHash) {
+                    if (!err) {
+                        logMe('Refund all escrow transactions: ' + transactionHash.valueOf());
+                        newInterface.registerTx('checkRefundAllEscrowTransaction', transactionHash.valueOf()).watch();
                     }
                 });
             }
