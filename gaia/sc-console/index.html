@@ -1,0 +1,623 @@
+<html>
+
+<head>
+  <title>Contract Interface</title>
+  <style>
+    * {
+            margin: 5px;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+        pre {
+            background: black;
+            color: white;
+            font-family: 'Courier New', Courier, monospace;
+            padding: 10px;
+            position: fixed;
+            top: 0px;
+            left: 550px;
+            width: 50%;
+            height: 100%;
+            margin: 0px;
+        }
+        input {
+            padding: 5px;
+            border: 1px solid gray;
+        }
+        
+    </style>
+</head>
+
+<body>
+  <script type="text/javascript" src="./js/main.js"></script>
+  <h3 id="networkID"></h3>
+  <h3>Account info</h3>
+  <label>User account:</label><br />
+  <input id="textUserAccount" size="40"><br />
+  <label>Ethereum balance:</label><br />
+  <input id="textUserBalance" size="40"><br />
+  <button onclick="connectWallet()">Connect Wallet</button>
+  <hr />
+  <h3>Tokenize</h3>
+  <label>Owner account:</label><br />
+  <input id="textTokenOwner" size="40"><br />
+  <button onclick="deployPropertyToken()">Deploy</button><br />
+  <hr />
+  <h3>Whitelist</h3>
+  <label>Unique name:</label><br />
+  <input id="propertyTokenName" size="40"><br />
+  <label>Address to white list:</label><br />
+  <input id="propertyTokenAddress" size="40"><br />
+  <button onclick="whitelistAnAddress()">Add to Whitelist</button>
+  <button onclick="readWhitelist()">Read whitelist data</button><br />
+  <hr />
+  <h3>Start Primary Sale</h3>
+  <label>PropertyToken address:</label><br />
+  <input id="primarySaleTokenAddress" size="40"><br />
+  <button onclick="allowInternalTransfer()">Allow Exchange use fund</button>
+  <button onclick="startPrimarySale()">Start primary sale</button>
+  <hr />
+  <h3>Buyer allows exchange to use stable coin (FO)</h3>
+  <label>Amount of Stable Coin</label><br />
+  <input id="textAmountStableCoin" size="40"><br />
+  <button onclick="allowExchangeUseStableCoin()">Delegate stable coin</button>
+  <h3>Take Primary Sale Offer (FO)</h3>
+  <label>Offer ID</label><br />
+  <input id="textOfferId" size="40"><br />
+  <label>Amount of Token</label><br />
+  <input id="textAmount" onchange="onChangeAmount()" size="40"><br />
+  <label>Estimate value:</label> <label id="estimated">$0</label><br />
+  <button onclick="loadAskOffer()">Load Ask Offer</button>
+  <button onclick="isAbleToBuy()">Check current buyer</button>
+  <button onclick="takePrimaryAskOffer()">Take Primary Ask Offer</button>
+  <hr />
+  <h3>Manager Approve or Refund Transaction</h3>
+  <label>Escrow Transaction ID</label><br />
+  <input id="textEscrowTransactionID" size="40"><br />
+  <button onclick="listAllEscrowTransaction()">List all escrow transactions</button>
+  <button onclick="approveEscrowTransaction()">Approve</button>
+  <button onclick="refundEscrowTransaction()">Refund</button>
+  <hr />
+  <h3>Unfreeze PropertyToken</h3>
+  <label>Token addresss</label><br />
+  <input id="textUnfreezePropertyToken" size="40"><br />
+  <button onclick="unfreezePropertyToken()">Unfreeze PropertyToken</button>
+  <hr />
+  <h3>Approve & Refund all Escrow Transactions</h3>
+  <label>Escrow Transaction IDs (example: 1,2,4,5,6):</label><br />
+  <input id="textListEscrowTransactionID" size="40"><br />
+  <button onclick="approveAllEscrowTransaction()">Approve All</button>
+  <button onclick="refundAllEscrowTransaction()">Refund All</button>
+  <pre id="log" style="width: 100%;"></pre>
+  <script type="text/javascript">
+    var newInterface = null;
+    var account = null;
+    //New contracts
+    var dataLog = "";
+    var offerData = null;
+    var wl = null;
+    var pt = null;
+    var es = null;
+
+    //Renew token name
+    function renewTokenName() {
+      propertyTokenName.value = "RS_PROPERTY_" + (((Math.random() * 0xffffffff) | 0) >>> 0).toString(16);
+    }
+
+    //Dev only
+    function logData() {
+      for (let i = 0; i < arguments.length; i++) {
+        if (arguments[i] !== null && typeof (arguments[i]['valueOf']) === 'function') {
+          console.log(arguments[i].valueOf());
+        } else {
+          console.log(arguments[i]);
+        }
+      }
+    }
+
+    //Data log
+    function logMe(input) {
+      dataLog = input + '\n' + dataLog;
+      document.getElementById('log').innerText = dataLog;
+    }
+
+    //function primarySell(address _tokenOwner, address _tokenAddress, uint128 _type, uint128 _duration, uint256 _amount, uint256 _price, uint256 _minimum)
+
+    //Runtime check
+    if (typeof (window.ContractInterface) !== 'undefined') {
+
+      function isAbleToBuy() {
+        if (newInterface === null) return;
+        var buyer = newInterface.defaultAccount;
+        var offerID = textOfferId.value;
+        (async () => {
+          let data = await es.sync.offerData(newInterface.toBigNumber(offerID));
+          let token = newInterface.load('PropertyToken', data[0]);
+          //Is owner verified
+          if (await wl.sync.verified(data[1])) {
+            logMe('[INFO] Owner was verified');
+          } else {
+            logMe('[ERROR] Owner wasn\'t verified');
+          }
+          //Is buyer verified
+          if (await wl.sync.verified(buyer)) {
+            logMe('[INFO] Buyer was verified');
+          } else {
+            logMe('[ERROR] Buyer wasn\'t verified');
+          }
+          //Is PropertyToken verified
+          if (await wl.sync.verified(data[0])) {
+            logMe('[INFO] PropertyToken was verified');
+          } else {
+            logMe('[ERROR] PropertyToken wasn\'t verified');
+          }
+          //Is Exchange verified
+          if (await wl.sync.verified(newInterface.contracts.ExchangeStable)) {
+            logMe('[INFO] Exchange was verified');
+          } else {
+            logMe('[ERROR] Exchange wasn\'t verified');
+          }
+          //Is Escrow verified
+          if (await wl.sync.verified(newInterface.contracts.EscrowPayment)) {
+            logMe('[INFO] EscrowPayment was verified');
+          } else {
+            logMe('[ERROR] EscrowPayment wasn\'t verified');
+          }
+          //Is ProfitPool verified
+          if (await wl.sync.verified(await es.sync.profitPool())) {
+            logMe('[INFO] ProfitPool was verified');
+          } else {
+            logMe('[ERROR] ProfitPool wasn\'t verified');
+          }
+          //Is buyer delegate their StableCoin
+          let delegateSC = await sc.sync.allowance(buyer, newInterface.contracts.ExchangeStable);
+          if (delegateSC.gt(0)) {
+            logMe('[INFO] Buyer was delegate: ' + delegateSC.div('1e+18').valueOf() + ' RUSD');
+          } else {
+            logMe('[ERROR] Buyer wasn\'t delegate their StableCoin');
+          }
+          //Is PropertyToken was delegate to exchange
+          if ((await token.sync.allowedInternalTransfer(newInterface.contracts.ExchangeStable))) {
+            logMe('[INFO] Manager was delegate owner PropertyToken to Exchange');
+          }
+          else {
+            logMe('[ERROR] Manager wasn\'t delegate owner PropertyToken to Exchange');
+          }
+        })();
+
+      }
+
+      function connectWallet() {
+        (async function () {
+          if (newInterface !== null) return;
+
+          //Create new interface of contract
+          newInterface = new ContractInterface();
+          let network = window.location.hash.substr(1) || 'rinkeby';
+          if (network === 'rinkeby') {
+            document.getElementById('networkID').innerHTML = "rinkeby: staging";
+          } else if (network === 'rinkeby-dev') {
+            document.getElementById('networkID').innerHTML = "rinkeby: dev";
+          }
+
+          //Init Cotract Interface
+          let accounts = await newInterface.init(network);
+
+          if (accounts.length > 0) {
+            logMe('Accounts: ' + JSON.stringify(accounts));
+            textUserAccount.value = newInterface.defaultAccount;
+            textTokenOwner.value = newInterface.defaultAccount;
+            //Request for balance
+            let balance = await newInterface.getBalance(newInterface.defaultAccount);
+            if (balance !== null) {
+              textUserBalance.value = balance.div('1e+18').valueOf();
+              logMe('Balance in wei: ' + balance.valueOf());
+            }
+          }
+
+          //Dev only
+          wl = newInterface.load('Whitelist');
+          pt = newInterface.load('PropertyToken');
+          es = newInterface.load('ExchangeStable');
+          sc = newInterface.load('StableCoin');
+          ep = newInterface.load('EscrowPayment');
+
+          newInterface.registerCallback(function (job, txHash, error, confirmed, result) {
+            if (!error) {
+              if (confirmed) {
+                let events = newInterface.getEvents(result);
+                logMe('    was confirmed in block: ' + result.blockNumber + " blockhash: " + result.blockHash);
+                logMe('[' + job + '] Transaction ' + result.transactionHash);
+                let txIDs = textListEscrowTransactionID.value
+                  .split(',')                                              //Split string to array
+                  .map(it => it.trim())                                    //Trim spaces
+                  .filter((it, pos, self) => self.indexOf(it) === pos)     //Filter duplicated
+                  .map(it => newInterface.toBigNumber(it));                //Convert to big integer
+                console.log(result, events);
+                //All job handler
+                switch (job) {
+                  case 'checkTokenizeDone':
+                    if (typeof (result.contractAddress) === 'string') {
+                      logMe('[SUCCESS] Contract is deployed at ' + result.contractAddress);
+                      propertyTokenAddress.value = result.contractAddress;
+                      newInterface.unWatch(result.transactionHash);
+                    }
+                    break;
+                  case 'checkWhitelistDone':
+                    if (events.filter(i => i.event.contract === 'Whitelist' && i.event.name === 'Add').length > 0) {
+                      logMe('[SUCCESS] Event emitted `Whitelist.Add`');
+                      newInterface.unWatch(result.transactionHash);
+                    }
+                    break;
+                  case 'checkInternalTransfer':
+                    (async function () {
+                      let propertyTokenInstance = newInterface.load('PropertyToken', primarySaleTokenAddress.value);
+                      if (await propertyTokenInstance.sync.allowedInternalTransfer(newInterface.contracts.ExchangeStable)) {
+                        logMe('[SUCCESS] Exchange was allowed to move PropertyToken fund.');
+                        newInterface.unWatch(result.transactionHash);
+                      }
+                    })();
+                    break;
+                  case 'checkPrimarySell':
+                    if (events.filter(i => i.event.contract === 'ExchangeStable' && i.event.name === 'PrimarySell').length > 0) {
+                      logMe('[SUCCESS] Event emitted `ExchangeStable.PrimarySell`');
+                      newInterface.unWatch(result.transactionHash);
+                    }
+                    break;
+                  case 'checkTakePrimaryAskOffer':
+                    if (events.filter(i => i.event.contract === 'ExchangeStable' && i.event.name === 'PrimaryBuy').length > 0) {
+                      logMe('[SUCCESS] Event emitted `ExchangeStable.PrimaryBuy`');
+                      newInterface.unWatch(result.transactionHash);
+                    }
+                    break;
+                  case 'checkAllowExchangeUseStableCoin':
+                    (async function () {
+                      let stablecoinInstance = newInterface.load('StableCoin');
+                      if ((await stablecoinInstance.sync.allowance(newInterface.defaultAccount, newInterface.contracts.ExchangeStable)).gt(0)) {
+                        logMe('[SUCCESS] Exchange was allowed to move StableCoin fund.');
+                        newInterface.unWatch(result.transactionHash);
+                      }
+                    })();
+                    break;
+                  case 'checkApproveEscrowTransaction':
+                    if (events.filter(i => i.event.contract === 'EscrowPayment' && i.event.name === 'Approve').length > 0) {
+                      logMe('[SUCCESS] Event emitted `EscrowPayment.Approve`');
+                      newInterface.unWatch(result.transactionHash);
+                    }
+                    break;
+                  case 'checkRefundEscrowTransaction':
+                    if (events.filter(i => i.event.contract === 'EscrowPayment' && i.event.name === 'Refund').length > 0) {
+                      logMe('[SUCCESS] Event emitted `Whitelist.Refund`');
+                      newInterface.unWatch(result.transactionHash);
+                    }
+                    break;
+                  case 'checkApproveAllEscrowTransaction':
+                    if (events.filter(i => i.event.contract === 'EscrowPayment' && i.event.name === 'Approve').length > 0) {
+                      logMe('[SUCCESS] Event emitted `EscrowPayment.Approve(' + events.filter(i => i.event.contract === 'EscrowPayment' && i.event.name === 'Approve').length + ') times`');
+                      newInterface.unWatch(result.transactionHash);
+                    } else {
+                      (async () => {
+                        let escrowPaymentInstance = newInterface.load('EscrowPayment');
+                        if ((await escrowPaymentInstance.sync.pendingTransactions(txIDs[0]))[5]) {
+                          logMe('[SUCCESS] trigger `EscrowPayment.ApproveAll`');
+                          newInterface.unWatch(result.transactionHash);
+                        }
+                      })();
+                    }
+                    break;
+                  case 'checkRefundAllEscrowTransaction':
+                    if (events.filter(i => i.event.contract === 'EscrowPayment' && i.event.name === 'Refund').length > 0) {
+                      logMe('[SUCCESS] Event emitted `Whitelist.Refund(' + events.filter(i => i.event.contract === 'EscrowPayment' && i.event.name === 'Refund').length + ') times`');
+                      newInterface.unWatch(result.transactionHash);
+                    } else {
+                      (async () => {
+                        let escrowPaymentInstance = newInterface.load('EscrowPayment');
+                        if ((await escrowPaymentInstance.sync.pendingTransactions(txIDs[0]))[5]) {
+                          logMe('[SUCCESS] trigger `EscrowPayment.RefundAll`');
+                          newInterface.unWatch(result.transactionHash);
+                        }
+                      })();
+                    }
+                    break;
+                  case 'checkUnfreezeTransaction':
+                    if (events.filter(i => i.event.contract === 'PropertyToken' && i.event.name === 'Unpause').length > 0) {
+                      logMe('[SUCCESS] Event emitted `PropertyToken.Unpause`');
+                      newInterface.unWatch(result.transactionHash);
+                    }
+                    break;
+                }
+              } else {
+                logMe('[WAIT] Waitting for transaction: ' + txHash + ' to be mined.');
+              }
+            }
+            else {
+              logMe('[REJECTED] Transaction: ' + txHash + ' was not confimed: ' + error.message);
+            }
+          }).watch();
+        })();
+      }
+
+      function deployPropertyToken() {
+        if (newInterface === null) return;
+        //Clear old data
+        propertyTokenAddress.value = '';
+        //Trigger deploy method
+        return newInterface.deployPropertyToken(newInterface.defaultAccount, //Deployer
+          textTokenOwner.value, //Owner
+          newInterface.utilities.scenarios.PROPERTY_TOKEN_SCENARIO_ALL,
+          newInterface.contracts.Whitelist,
+          function (err, newPropertyToken) {
+            if (!err) {
+              if (typeof (newPropertyToken.address) === 'undefined') {
+                renewTokenName();
+                logMe('Deploy PropertyToken in transaction: ' + newPropertyToken.transactionHash.valueOf());
+                newInterface.registerTx('checkTokenizeDone', newPropertyToken.transactionHash.valueOf()).watch();
+              }
+            }
+          });
+      }
+
+      function whitelistAnAddress() {
+        if (newInterface === null) return;
+        if (!newInterface.utilities.isValidAddress(propertyTokenAddress.value)) {
+          logMe('Invalid address to whitelist.');
+          return;
+        }
+        let whitelistInstance = newInterface.load('Whitelist');
+        (async function () {
+          if (await whitelistInstance.sync.verified(propertyTokenAddress.value)) {
+            logMe('Address is whitelisted');
+            return;
+          }
+          //Trigger Whitelist.add(bytes32 _name, addres _address);
+          whitelistInstance.add(propertyTokenName.value, propertyTokenAddress.value, function (err, transactionHash) {
+            if (!err) {
+              logMe('Add PropertyToken to Whitelist at: ' + transactionHash.valueOf());
+              newInterface.registerTx('checkWhitelistDone', transactionHash.valueOf()).watch();
+              renewTokenName();
+            }
+          });
+        })();
+      }
+
+      function readWhitelist() {
+        (async function () {
+          if (newInterface === null) return;
+          let whitelistInstance = newInterface.load('Whitelist');
+          let total = await whitelistInstance.sync.totalVerified();
+          let totalVerified = total.toNumber();
+          logMe('Read 5 latest records from Whitelist');
+          for (let i = ((totalVerified - 5) < 0) ? 0 : (totalVerified - 5); i < totalVerified; i++) {
+            let name = await whitelistInstance.sync.ordering(i);
+            let address = await whitelistInstance.sync.addressBook(name);
+            let verified = await whitelistInstance.sync.verified(address);
+            logMe([
+              i,
+              newInterface.utilities.bytesToString(name.valueOf()),
+              address.valueOf(),
+              verified.valueOf()
+            ].join('    '));
+          }
+          logMe('No    Token Name                         Token Address                                 Verified');
+        })();
+      }
+
+      function allowInternalTransfer() {
+        if (newInterface === null) return;
+        if (!newInterface.utilities.isValidAddress(primarySaleTokenAddress.value)) {
+          logMe('Invalid PropertyToken address');
+          return;
+        }
+        (async function () {
+          let propertyTokenInstance = newInterface.load('PropertyToken', primarySaleTokenAddress.value);
+          //Is exchange able to use fund
+          let allowed = await propertyTokenInstance.sync.allowedInternalTransfer(newInterface.contracts.ExchangeStable);
+          logMe('Is exchange able to use PropertyToken fund? ' + allowed.valueOf());
+          if (!allowed) {
+            propertyTokenInstance.allowInternalTransfer(newInterface.contracts.ExchangeStable, function (err, transactionHash) {
+              if (!err) {
+                logMe('Allow exchange use PropretyToken at: ' + transactionHash.valueOf());
+                newInterface.registerTx('checkInternalTransfer', transactionHash.valueOf()).watch();
+                renewTokenName();
+              }
+            });
+          }
+        })();
+      }
+
+      function allowExchangeUseStableCoin() {
+        if (newInterface === null) return;
+        (async function () {
+          let stablecoinInstance = newInterface.load('StableCoin');
+          stablecoinInstance.approve(newInterface.contracts.ExchangeStable, newInterface.toBigNumber(textAmountStableCoin.value).mul('1e+18'), function (err, transactionHash) {
+            if (!err) {
+              logMe('Allow exchange use PropretyToken at: ' + transactionHash.valueOf());
+              newInterface.registerTx('checkAllowExchangeUseStableCoin', transactionHash.valueOf()).watch();
+              renewTokenName();
+            }
+          });
+        })();
+      }
+
+      function startPrimarySale() {
+        if (newInterface === null) return;
+        (async function () {
+          if (!newInterface.utilities.isValidAddress(primarySaleTokenAddress.value)) {
+            logMe('Invalid PropertyToken address');
+            return;
+          }
+          let propertyTokenInstance = newInterface.load('PropertyToken', primarySaleTokenAddress.value);
+          //Is exchange able to use fund
+          let allowed = await propertyTokenInstance.sync.allowedInternalTransfer(newInterface.contracts.ExchangeStable);
+          logMe('Is exchange able to use PropertyToken fund? ' + allowed.valueOf());
+          if (allowed) {
+            let exchangeStableInstance = newInterface.load('ExchangeStable');
+            exchangeStableInstance.primarySell(textTokenOwner.value,                            //Property owner
+              primarySaleTokenAddress.value,                                                  //Property token
+              newInterface.utilities.createOfferType({                                        //Offer type
+                ask: true,
+                whole: false,
+                available: true,
+                primary: true
+              }),
+              259200,                                             //Duration 3 days in secs
+              1000000,                                            //Amount
+              newInterface.toBigNumber("0.12").mul("1e+18"),      //Price $0.12
+              1000,
+              function (err, transactionHash) {
+                if (!err) {
+                  logMe('Start pimary sale at: ' + transactionHash.valueOf());
+                  newInterface.registerTx('checkPrimarySell', transactionHash.valueOf()).watch();
+                  renewTokenName();
+                }
+              });                                      //Minimum
+          } else {
+            logMe('Please allow exchange to move fund first.');
+          }
+        })();
+      }
+
+      function loadAskOffer() {
+        if (newInterface === null) return;
+        (async function () {
+          let exchangeInstance = newInterface.load('ExchangeStable');
+          offerData = await exchangeInstance.sync.offerData(newInterface.toBigNumber(textOfferId.value));
+          logMe('        Token      :    ' + offerData[0]);
+          logMe('        Maker      :    ' + offerData[1]);
+          logMe('        oType      :    ' + JSON.stringify(newInterface.utilities.getOfferType(offerData[2].valueOf())));
+          logMe('        Expired    :    ' + newInterface.utilities.timeConverter(offerData[3].valueOf()));
+          logMe('        Amount     :    ' + offerData[4].valueOf());
+          logMe('        Minium     :    ' + offerData[5].valueOf());
+          logMe('        Price      :    ' + offerData[6].valueOf() + ' ($' + offerData[6].div('1e+18') + ')');
+          logMe('Offer ID: ' + textOfferId.value);
+        })();
+      }
+
+      function onChangeAmount() {
+        if (newInterface === null || offerData === null) return;
+        let amount = newInterface.toBigNumber(textAmount.value);
+        document.getElementById('estimated').innerHTML = '$' + amount.mul(offerData[6]).div('1e+18');
+      }
+
+      function takePrimaryAskOffer() {
+        if (newInterface === null || offerData === null) return;
+        (async function () {
+          let whitelistInstance = newInterface.load('Whitelist');
+          let exchangeInstance = newInterface.load('ExchangeStable');
+          let stablecoinInstance = newInterface.load('StableCoin');
+          let amount = newInterface.toBigNumber(textAmount.value);
+          document.getElementById('estimated').innerHTML = '$' + amount.mul(offerData[6]).div('1e+18');
+          if (!(await whitelistInstance.sync.verified(newInterface.defaultAccount)).valueOf()) {
+            logMe(newInterface.defaultAccount + ' was not verified.');
+            return;
+          }
+          exchangeInstance.primaryBuy(newInterface.toBigNumber(textOfferId.value), amount, function (err, transactionHash) {
+            if (!err) {
+              logMe('Take primary ask offer: ' + transactionHash.valueOf());
+              newInterface.registerTx('checkTakePrimaryAskOffer', transactionHash.valueOf()).watch();
+            }
+          });
+        })();
+      }
+
+      function listAllEscrowTransaction() {
+        if (newInterface === null) return;
+        (async function () {
+          let escrowInstance = newInterface.load('EscrowPayment');
+          let totalTransaction = await escrowInstance.sync.totalTransaction();
+          //BigNumber to number
+          let totalTx = totalTransaction.toNumber();
+          logMe('Load 5 latest escrow transactions');
+          for (let i = ((totalTx - 5) < 0) ? 0 : (totalTx - 5); i < totalTx; i++) {
+            //Get escrow transaction
+            let data = await escrowInstance.sync.pendingTransactions(i);
+            logMe('    Executed:' + data[5].valueOf());
+            logMe('    Fee:' + data[4].valueOf());
+            logMe('    Value:' + data[3].valueOf());
+            logMe('    To:' + data[2]);
+            logMe('    From:' + data[1]);
+            logMe('    Token:' + data[0]);
+            logMe('Transaction: #' + i);
+          }
+        })();
+      }
+
+      function approveEscrowTransaction() {
+        if (newInterface === null) return;
+        let escrowInstance = newInterface.load('EscrowPayment');
+        escrowInstance.approve(newInterface.toBigNumber(textEscrowTransactionID.value), function (err, transactionHash) {
+          if (!err) {
+            logMe('Approve escrow transaction: ' + transactionHash.valueOf());
+            newInterface.registerTx('checkApproveEscrowTransaction', transactionHash.valueOf()).watch();
+          }
+        });
+      }
+
+      function refundEscrowTransaction() {
+        if (newInterface === null) return;
+        let escrowInstance = newInterface.load('EscrowPayment');
+        escrowInstance.refund(newInterface.toBigNumber(textEscrowTransactionID.value), function (err, transactionHash) {
+          if (!err) {
+            logMe('Refund escrow transaction: ' + transactionHash.valueOf());
+            newInterface.registerTx('checkRefundEscrowTransaction', transactionHash.valueOf()).watch();
+          }
+        });
+      }
+
+      function unfreezePropertyToken() {
+        (async () => {
+          if (newInterface === null) return;
+          let propertyTokenInstance = newInterface.load('PropertyToken', textUnfreezePropertyToken.value);
+          if (!await propertyTokenInstance.sync.paused()) {
+            logMe('PropertyToken was not paused');
+            return;
+          }
+          propertyTokenInstance.unpause(function (err, transactionHash) {
+            if (!err) {
+              logMe('Unfreeze PropertyToken at (' + textUnfreezePropertyToken.value + ') : ' + transactionHash.valueOf());
+              newInterface.registerTx('checkUnfreezeTransaction', transactionHash.valueOf()).watch();
+            }
+          });
+        })();
+      }
+
+      function approveAllEscrowTransaction() {
+        if (newInterface === null) return;
+        let escrowInstance = newInterface.load('EscrowPayment');
+        let txIDs = textListEscrowTransactionID.value
+          .split(',')                                              //Split string to array
+          .map(it => it.trim())                                    //Trim spaces
+          .filter((it, pos, self) => self.indexOf(it) === pos)     //Filter duplicated
+          .map(it => newInterface.toBigNumber(it));                //Convert to big integer
+        escrowInstance.approveAll(txIDs, function (err, transactionHash) {
+          if (!err) {
+            logMe('Approve all escrow transactions: ' + transactionHash.valueOf());
+            newInterface.registerTx('checkApproveAllEscrowTransaction', transactionHash.valueOf()).watch();
+          }
+        });
+      }
+
+      function refundAllEscrowTransaction() {
+        if (newInterface === null) return;
+        let escrowInstance = newInterface.load('EscrowPayment', newInterface.contracts.EscrowPayment);
+        let txIDs = textListEscrowTransactionID.value
+          .split(',')                                              //Split string to array
+          .map(it => it.trim())                                    //Trim spaces
+          .filter((it, pos, self) => self.indexOf(it) === pos)     //Filter duplicated
+          .map(it => newInterface.toBigNumber(it));                //Convert to big integer
+        escrowInstance.refundAll(txIDs, function (err, transactionHash) {
+          if (!err) {
+            logMe('Refund all escrow transactions: ' + transactionHash.valueOf());
+            newInterface.registerTx('checkRefundAllEscrowTransaction', transactionHash.valueOf()).watch();
+          }
+        });
+      }
+
+      renewTokenName();
+      connectWallet();
+    } else {
+      throw new Error('Contract interface was not loaded');
+    }
+  </script>
+</body>
+
+</html>
