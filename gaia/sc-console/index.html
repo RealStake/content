@@ -18,7 +18,7 @@
   <div class="container-fluid">
     <div class="row">
       <div class="col-12" style="padding: 20px;">
-        <h2 class="text-info">RealStake - Smart Contracts Console v1.0.2</h2>
+        <h2 class="text-info">RealStake - Smart Contracts Console v1.0.3</h2>
       </div>
       <div class="col-2">
         <div id="list-example" class="list-group">
@@ -386,7 +386,6 @@
                   if (typeof (result.contractAddress) === 'string') {
                     alertNow('success', 'Contract is deployed at ' + result.contractAddress);
                     storage.push('tokenized-property-token', result.contractAddress);
-                    propertyTokenAddress.value = result.contractAddress;
                     newInterface.unWatch(result.transactionHash);
                   }
                   break;
