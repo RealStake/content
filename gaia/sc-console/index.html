@@ -18,7 +18,7 @@
   <div class="container-fluid">
     <div class="row">
       <div class="col-12" style="padding: 20px;">
-        <h2 class="text-info">RealStake - Smart Contracts Console v1.0.1</h2>
+        <h2 class="text-info">RealStake - Smart Contracts Console v1.0.2</h2>
       </div>
       <div class="col-2">
         <div id="list-example" class="list-group">
@@ -295,6 +295,12 @@
       })();
     }
     syncWhitelist();
+
+    $('#optNetwork').change(function () {
+      delete localStorage['tokenized-property-token'];
+      delete localStorage['whitelist-address'];
+      alertNow('warning', 'Change network to ' + $(this).val());
+    });
 
     $('#btnAddToWhitelist').click(function () {
       if (newInterface === null) return;
