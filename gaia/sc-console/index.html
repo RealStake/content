@@ -18,7 +18,7 @@
   <div class="container-fluid">
     <div class="row">
       <div class="col-12" style="padding: 20px;">
-        <h2 class="text-info">RealStake - Smart Contracts Console v1.0.4</h2>
+        <h2 class="text-info">RealStake - Smart Contracts Console v1.0.5</h2>
       </div>
       <div class="col-2">
         <div id="list-example" class="list-group">
@@ -26,6 +26,7 @@
           <a class="list-group-item list-group-item-action" href="#token-info">Token Dashboard</a>
           <a class="list-group-item list-group-item-action" href="#tokenize-property">Tokenize Property</a>
           <a class="list-group-item list-group-item-action" href="#whitelist-manager">Whitelist Manager</a>
+          <a class="list-group-item list-group-item-action" href="#offer-list">Offer List</a>
           <!--
           <a class="list-group-item list-group-item-action" href="#primary-sale">Primary Sale</a>
           <a class="list-group-item list-group-item-action" href="#list-item-4">Item 4</a>
@@ -52,8 +53,8 @@
               <span class="input-group-text">Select network</span>
             </div>
             <select id="optNetwork" class="form-control">
-              <option value="rinkeby-dev" selected>Rinkeby develop</option>
-              <option value="rinkeby">Rinkeby staging</option>
+              <option value="rinkeby-develop" selected>Rinkeby develop</option>
+              <option value="rinkeby-staging">Rinkeby staging</option>
             </select>
             <div class="input-group-append">
               <button class="btn btn-primary" id="btnConnectWallet">Connect Wallet</button>
@@ -133,6 +134,26 @@
               </tr>
             </thead>
             <tbody id="tableWhitelistBody"></tbody>
+          </table>
+        </div>
+        <!-- End whitelist manager -->
+
+        <!-- Begin whitelist manager -->
+        <div class="form-group" id="offer-list">
+          <button class="btn btn-warning" id="btnOfferListRefresh">Offer List Refresh</button><br /><br />
+          <table class="table">
+            <thead>
+              <tr>
+                <th scope="col">#</th>
+                <th scope="col">Token</th>
+                <th scope="col">Maker</th>
+                <th scope="col">Price</th>
+                <th scope="col">Amount</th>
+                <th scope="col">Expired</th>
+                <th scope="col">Minimum</th>
+              </tr>
+            </thead>
+            <tbody id="tableOfferList"></tbody>
           </table>
         </div>
         <!-- End whitelist manager -->
@@ -274,7 +295,6 @@
     function syncWhitelist() {
       (async () => {
         if (newInterface !== null) {
-          let table = $('#tableWhitelistBody');
           let whitelistAddress = storage.get('whitelist-address') || [];
           let numberOfWhitelisted = newInterface.toBigNumber(whitelistAddress.length);
           let whitelistInstance = newInterface.load('Whitelist');
@@ -301,9 +321,36 @@
     }
     syncWhitelist();
 
+    function syncOfferList() {
+      (async () => {
+        if (newInterface !== null) {
+          let offerList = storage.get('offer-list') || [];
+          let offerId = newInterface.toBigNumber(offerList.length);
+          let exchangeStableInstance = newInterface.load('ExchangeStable');
+          let total = await exchangeStableInstance.sync.totalOffer();
+          if (total.gt(offerId)) {
+            let offerData = newInterface.parseData('ExchangeStable.offerData', await exchangeStableInstance.sync.offerData(offerId));
+            offerList.push({
+              no: offerId.valueOf(),
+              token: offerData.token,
+              maker: offerData.maker,
+              amount: offerData.amount.valueOf(),
+              expired: (new Date(offerData.expired.mul(1000).toNumber())).toString(),
+              minimum: offerData.minimum.valueOf(),
+              price: offerData.price.div('1e+18').valueOf()
+            });
+            storage.set('offer-list', offerList);
+          }
+        }
+        setTimeout(() => {
+          syncOfferList();
+        }, 2000)
+      })();
+    }
+    syncOfferList();
+
     $('#optNetwork').change(function () {
-      delete localStorage['tokenized-property-token'];
-      delete localStorage['whitelist-address'];
+      localStorage.clear();
       alertNow('warning', 'Change network to ' + $(this).val());
     });
 
@@ -343,12 +390,32 @@
       })();
     });
 
+    $('#btnOfferListRefresh').click(function () {
+      (async () => {
+        let table = $('#tableOfferList');
+        let offerData = storage.get('offer-list') || [];
+        table.find('*').remove();
+        for (let i = 0; i < offerData.length; i++) {
+          let record = offerData[i];
+          table.append(`<tr>
+                <th scope="col">${record.no}</th>
+                <td scope="col">${record.token}</td>
+                <td scope="col">${record.maker}</td>
+                <td scope="col">${record.price}</td>
+                <td scope="col">${record.amount}</td>
+                <td scope="col">${record.expired}</td>
+                <td scope="col">${record.minimum}</td>
+              </tr>`);
+        }
+      })();
+    });
+
     $('#btnConnectWallet').click(function () {
       (async function () {
 
         //Create new interface of contract
         newInterface = new ContractInterface();
-        let network = $('#optNetwork').val();
+        let network = $('#optNetwork').val() || 'rinkeby-develop';
 
         //Init Cotract Interface
         let accounts = await newInterface.init(network);
@@ -357,7 +424,7 @@
         if (accounts.length > 0) {
           console.log('Accounts: ' + JSON.stringify(accounts));
           $('#accountAddress').html(newInterface.defaultAccount);
-          $('#networkInfo').html(network === 'rinkeby' ? 'Rinkeby Staging' : 'Rinkeby Develop');
+          $('#networkInfo').html(network === 'rinkeby-staging' ? 'Rinkeby Staging' : 'Rinkeby Develop');
           //Request for balance
           let balance = await newInterface.getBalance(newInterface.defaultAccount);
           if (balance) {
