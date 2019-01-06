@@ -222,6 +222,9 @@
         case 'div#tokenize-property':
           reloadTokenized();
           break;
+        case 'div#offer-list':
+          $('#btnOfferListRefresh').click();
+          break;
       }
       $('div.form-group').hide();
       $(target).show();
