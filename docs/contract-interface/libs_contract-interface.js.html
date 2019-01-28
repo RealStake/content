@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: libs/contract-interface.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: libs/contract-interface.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>'use strict';
+
+//JSON files
+const abis = require('../json/abi');
+const network = require('../json/network');
+const address = require('../json/address');
+const bytecode = require('../json/bytecode');
+const utilities = require('./utilities');
+const newWeb3 = require('web3');
+const noQueue = require('noqueue');
+const Storage = require('./storage');
+
+/**
+ * Create instance of Contract interface, we are supporting loadder to load singleton instance of Contract Interface
+ * @constructor
+ * @class
+ * @name ContractInterface
+ * @param {String} net Network name
+ * @return {ContractInterface} Contract Interface instance
+ * @example
+ * const ContractInterface = require('contract-interface');
+ * //Load instance of `rinkeby-develop` network
+ * let instanceContractInterface = ContractInterface('rinkeby-develop');
+ * console.log(instance.version); //1.0.1
+ */
+function ContractInterface(net) {
+  console.log(`Contract build: ${network[net]} network ${net}`);
+  if (typeof network[net] === 'undefined') {
+    throw new Error('Network not found or invalid');
+  }
+
+  /**
+   * An intance of Web3.js
+   * @private
+   */
+  this._web3 = null;
+
+  /**
+   * Localstorage manager
+   * @private
+   */
+  this._storage = new Storage(`io.realstake.ci.${net}`);
+
+  /**
+   * ABI of contracts
+   * @private
+   */
+  this._abi = abis;
+
+  /**
+   * Default address loadded by network
+   * @private
+   */
+  this._address = address[network[net]];
+
+  /**
+   * Name mapping by address
+   * @private
+   */
+  this._name = {};
+
+  //Re-mapping data
+  for (let i in this._address) {
+    this._name[this._address[i]] = i;
+  }
+
+  /**
+   * Singletone cache
+   * @private
+   */
+  this._contractInstances = {};
+
+  /**
+   * Latest connect status
+   * @private
+   */
+  this._latestConnectStatus = false;
+
+  /**
+   * Version number
+   * @public
+   */
+  this.version = '1.0.1';
+
+  /**
+   * Task scheduling and events handle
+   * @class
+   * @public
+   */
+  this.noQueue = new noQueue({ delay: 1000 });
+
+  /**
+   * @event noQueue#metamask-update Metamask chages its status of connection
+   * @example
+   * let eventHandler = instanceContractInterface.noQueue;
+   * eventHandler.on('metamask-update', function(data){
+   *    console.log(`Your wallet is ${data.connectStatus ? 'connected' : 'disconnected'}`);
+   * });
+   */
+
+  /**
+   * @event noQueue#watch Watching for transaction receipt
+   * @example
+   * let eventHandler = instanceContractInterface.noQueue;
+   * eventHandler.on('watch', function(transactionHash){
+   *    console.log(`Start watching for ${transactionHash}'s receipt`);
+   * });
+   */
+
+  /**
+   * @event noQueue#unwatch Unwatching for transaction receipt
+   * @example
+   * let eventHandler = instanceContractInterface.noQueue;
+   * eventHandler.on('uwatch', function(data){
+   *    console.log(`Stop watching for ${transactionHash}'s receipt`);
+   * });
+   */
+
+  /**
+   * Export helper
+   * @public
+   */
+  this.helper = utilities;
+
+  /**
+   * Conect status
+   * @public
+   */
+  this.connected = false;
+
+  let _self = this;
+
+  //Check metamask connect status
+  this.noQueue.add('metamask-check', function () {
+    return new Promise((resolve, reject) => {
+      _self.connected = !(typeof ethereum.selectedAddress === 'undefined' || ethereum.selectedAddress === '');
+      if (_self._latestConnectStatus != _self.connected) {
+        /**
+         * @fires noQueue#metamask-update
+         */
+        resolve({
+          eventName: 'metamask-update',
+          data: { connectStatus: _self.connected }
+        });
+        _self._latestConnectStatus = _self.connected;
+      } else {
+        resolve({});
+      }
+    });
+  });
+
+  this.noQueue.start();
+
+  //Watching for added transactions
+  let mempool = this._storage.get('mempool') || [];
+  for (let i = 0; i &lt; mempool.length; i++) {
+    let txHash = mempool[i];
+    /** @fires noQueue#watch */
+    _self.noQueue.emit('watch', txHash);
+    _self.noQueue.add(`watch-${txHash}`, function () {
+      return new Promise(function (resolve, reject) {
+        if (!_self._web3) return reject(new Error('web3 was not loadded'));
+        _self._web3.eth.getTransactionReceipt(txHash, async function (error, txReceipt) {
+          if (txReceipt === null) return reject(new Error('Transaction\'s receipt was null'));
+          if (!error) {
+            let currentBlock = await _self._web3.eth.getBlockNumber();
+            let confirmation = currentBlock - txReceipt.blockNumber;
+            let contractName = _self.getContractName(txReceipt.to);
+            _self.noQueue.emit('confirm', confirmation, txReceipt);
+            if (confirmation >= 6) {
+              if (contractName !== '') {
+                let events = _self.parseEvents(txReceipt)
+                let contractInstance = _self.getInstanceByAddress(txReceipt.to);
+                for (let i = 0; i &lt; events.length; i++) {
+                  contractInstance.emit(events[i].event, {
+                    event: events[i].event,
+                    from: txReceipt.from,
+                    to: txReceipt.to,
+                    transactionHash: txReceipt.transactionHash,
+                    params: events[i].params
+                  });
+                }
+              }
+              if (txReceipt.contractAddress) {
+                _self.noQueue.emit('contract-deployed', txReceipt.contractAddress);
+              }
+              _self._storage.pop('mempool', txHash);
+              _self.noQueue.remove(`watch-${txHash}`);
+              /** @fires noQueue#unwatch */
+              _self.noQueue.emit('unwatch', txHash);
+            }
+            resolve(txReceipt);
+          } else {
+            reject(error);
+          }
+        });
+      });
+    });
+  }
+  return this;
+}
+
+/** @lends ContractInterface# */
+ContractInterface.prototype = {
+
+  /**
+   * Get contract's address by name
+   * @param {String} name Contract's address
+   * @return {String} Contract's address
+   * @example
+   * //Return `0x69c7674610b7fcf082bac670ea7daa500d4f16a9`
+   * instanceContractInterface.getContractAddress('Whitelist');
+   */
+  getContractAddress: function (name) {
+    if (name &amp;&amp; typeof this._address[name] !== 'undefined') return this._address[name];
+    return '';
+  },
+
+  /**
+   * Get contract's name by address
+   * @param {String} addresss Contract's address
+   * @return {String} Contract's name
+   * @example
+   * //Return `Whitelist`
+   * instanceContractInterface.getContractName('0x69c7674610b7fcf082bac670ea7daa500d4f16a9');
+   */
+  getContractName: function (addresss) {
+    if (addresss &amp;&amp; typeof this._name[addresss] !== 'undefined') return this._name[addresss];
+    return '';
+  },
+
+  /**
+   * Establishing a connection to use MetaMask
+   * @return {Promise}
+   * @example
+   * instanceContractInterface.connect().then(function(accounts){
+   *    if(instanceContractInterface.defaultAccount){
+   *      console.log(`Connected account ${instanceContractInterface.defaultAccount} in ${accounts}`);
+   *    }
+   *    else{
+   *      throw new Error('Can not get default account from Metamask');
+   *    }
+   * });
+   */
+  connect: function () {
+    return new Promise((resolve) => {
+      if (typeof (ethereum) === 'undefined') {
+        resolve([]);
+      }
+      else {
+        ethereum.enable().then((accounts) => {
+          //Binding object from web3.js
+          this._web3 = new newWeb3(ethereum);
+          //Binding public methods
+          this.defaultAccount = null || ethereum.selectedAddress;
+          this.utils = this._web3.utils;
+          resolve(accounts);
+          this.connected = true;
+        }, () => {
+          resolve([]);
+        });
+      }
+    });
+  },
+
+  /**
+   * Parse events from smart contracts
+   * @param {Object} txReceipt Transaction's receipt
+   * @param {String} contractName Contract's name
+   * @return {Array}
+   * @example
+   * 
+   * instanceContractInterface._web3.eth.getTransactionReceipt('0x0cfa55ca1498870d7f259878e1814d5c790a31b3922820b2d1f9fdcbcc952e31', function(err, txReceipt){
+   *   console.log(JSON.stringify(instanceContractInterface.parseEvents(txReceipt), null, "  "));
+   * });
+   * //Result:
+   * //[
+   * //  {
+   * //    "event": "WhitelistedAdded",
+   * //    "from": "0x12583f7627099d8c89a68112c15b83628e72cbe7",
+   * //    "to": "0x69c7674610b7fcf082bac670ea7daa500d4f16a9",
+   * //    "transactionHash": "0x0cfa55ca1498870d7f259878e1814d5c790a31b3922820b2d1f9fdcbcc952e31",
+   * //    "params": {
+   * //      "account": "0x21203C782EE48378Ff77Bae55c6cD6DdD277682F"
+   * //    }
+   * //  }
+   * //]
+   */
+  parseEvents: function (txReceipt, contractName) {
+    //All event to return
+    let allEvents = [];
+    contractName = contractName || this.getContractName(txReceipt.to);
+    let abi = this._abi[contractName];
+
+    //Filter events only
+    const events = abi.filter(item => {
+      return item.type === 'event'
+    });
+
+    //Parse all event
+    for (let i = 0; i &lt; txReceipt.logs.length; i++) {
+      let log = txReceipt.logs[i];
+      for (let e = 0; e &lt; events.length; e++) {
+        let event = events[e];
+        const encodedEvent = this._web3.eth.abi.encodeEventSignature(event);
+        let topics = log.topics;
+        if (encodedEvent !== topics[0]) break;
+        const decoded = this._web3.eth.abi.decodeLog(
+          event.inputs,
+          log.data,
+          log.topics.slice(1)
+        );
+        //Reduce params
+        const args = event.inputs.reduce((args, input) => {
+          args[input.name] = decoded[input.name]
+          return args
+        }, {});
+        allEvents.push({
+          event: event.name,
+          from: txReceipt.from,
+          to: txReceipt.to,
+          transactionHash: txReceipt.transactionHash,
+          params: args
+        });
+      }
+    }
+    return allEvents;
+  },
+
+  /**
+   * Get smart contract's instance by its address
+   * @param {String} address Address of smart contract
+   * @return {Contract} Return instance of Contract
+   * @example
+   * //Return Contract's instance of `Whitelist`
+   * instanceContractInterface.getInstanceByAddress('0x69c7674610b7fcf082bac670ea7daa500d4f16a9');
+   */
+  getInstanceByAddress: function (address) {
+    return this.getIntance(this.getContractName(address))
+  },
+
+  /**
+   * Remove instance of Contract Interface from instance cache
+   * @param {String} address Address of smart contract
+   * @return {boolean} True when instance was removed otherwise false
+   * @example
+   * //Return `true` after delete successed
+   * instanceContractInterface.deleteInstance('0x69c7674610b7fcf082bac670ea7daa500d4f16a9');
+   */
+  deleteInstance: function (address) {
+    return (delete this._contractInstances[address]);
+  },
+
+  /**
+   * Get instance of contract for given address
+   * @param {String} contract Contract name
+   * @param {String} [address] Address of deployed smart contract
+   * @return {Contract} An instance of smart contract
+   * @example
+   * let whitelistIntance = instanceContractInterface.getIntance('Whitelist');
+   * whitelistIntance.call.isWhitelisted('0x12583f7627099d8c89a68112c15b83628e72cbe7').then(function(isWhitelisted){
+   *   console.log(`Account 0x12583f7627099d8c89a68112c15b83628e72cbe7 is ${isWhitelisted ? 'whitelisted' : 'not whitelisted'}.`)
+   * });
+   * //Result: Account 0x12583f7627099d8c89a68112c15b83628e72cbe7 is whitelisted.
+   */
+  getIntance: function (contract, address) {
+    address = address || this._address[contract];
+    //Check ABI and address existancce
+    if (typeof this._abi[contract] === 'undefined'
+      || typeof this._address[contract] === 'undefined') throw new Error(`Contract name ${contract} at ${address} isn't existing`);
+    let _curInstance = this;
+
+    /**
+     * Constructor function of contract
+     * @constructor
+     * @class
+     * @name Contract
+     * @return {Contract} Contract instance
+     * @example
+     * //Instance of deployed `Whitelist` smart contract will be binded to `instanceWhitelist`
+     * let instanceWhitelist = instanceContractInterface.getIntance('Whitelist');
+     */
+    function Contract() {
+      /**
+      * Web3.js contract instance
+      * @private
+      */
+      this._instance = new _curInstance._web3.eth.Contract(_curInstance._abi[contract], address);
+      this._name = contract;
+      this._abi = _curInstance._abi[contract];
+      this._events = {};
+
+      /**
+       * Porting executeable methods from smart contract to local object
+       * @class
+       * @static
+       * @public
+       * @example
+       * let whitelistInstance = instanceContractInterface.load('Whitelist');
+       * //Add 0xbbA808137aAe70c6A0f0a63941655eb2744cdD5d to `Whitelist`
+       * whitelistInstance.exec.addWhitelisted('0xbbA808137aAe70c6A0f0a63941655eb2744cdD5d').then((gas)=>{
+       *   console.log(`Transaction will be got confirmed with estimate gas ${gas}.`);
+       * });
+       */
+      this.exec = {};
+
+      /**
+       * Porting data reader from smart contract to local object
+       * @class
+       * @static
+       * @public
+       * @example
+       * let whitelistInstance = instanceContractInterface.load('Whitelist');
+       * //Get whitelist status of current active account
+       * whitelistInstance.call.isWhitelisted(instanceContractInterface.defaultAccount).then((result)=>{
+       *   //Result: Account 0x12583f7627099d8c89a68112c15b83628e72cbe7 is whitelisted.
+       *   console.log(`Account ${instanceContractInterface.defaultAccount} is ${result ? 'whitelisted' : 'not whitelisted'}.`);
+       * });
+       */
+      this.call = {};
+
+      let _self = this;
+      for (let i = 0; i &lt; this._abi.length; i++) {
+        let el = this._abi[i];
+        let method = el.name;
+        if (el.constant &amp;&amp; el.type === 'function') {
+          this.call[method] = function () {
+            let params = Array.from(arguments);
+            if (typeof _self._instance.methods[method] !== 'function') throw new Error('Method was not existing');
+            return _self._instance.methods[method].apply(_self._instance, params).call();
+          }
+        } else {
+          this.exec[method] = function () {
+            let params = Array.from(arguments);
+            params = [method].concat(params);
+            if (typeof _self._instance.methods[method] !== 'function') throw new Error('Method was not existing');
+            return _self._exec.apply(_self, params);
+          }
+        }
+      }
+    }
+
+    /** @lends Contract# */
+    Contract.prototype = {
+      /**
+       * Execute smart contract methods
+       * @param {String} methodName Name of method link to Smart Contract
+       * @param {*} [params] Params of method
+       * @private
+       */
+      _exec: function () {
+        let params = Array.from(arguments);
+        let _self = this;
+        if (typeof this._instance.methods[params[0]] !== 'function') throw new Error('Method was not existing');
+        return new Promise((resolve, reject) => {
+          this._instance.methods[params[0]].apply(null, params.slice(1)).estimateGas({ from: _curInstance.defaultAccount })
+            .then((gasAmount) => {
+              //Add 100 panding gas for minor changes
+              gasAmount += 100;
+              this._instance.methods[params[0]]
+                .apply(null, params.slice(1)).send({ from: _curInstance.defaultAccount, gas: gasAmount })
+                .once('transactionHash', (transactionHash) => {
+                  //Push transaction to mempool
+                  _curInstance._storage.push('mempool', transactionHash);
+                  /** @fires Contract#tx-created */
+                  _self.emit('tx-created', transactionHash, gasAmount);
+                })
+                .once('receipt', (txReceipt) => {
+                  _self.emit('tx-receipted', txReceipt);
+                })
+                .on('confirmation', function (numOfConfirmation, txReceipt) {
+                  _self.emit('tx-confirming', numOfConfirmation, txReceipt);
+                  if (numOfConfirmation >= 6) {
+                    for (let i in txReceipt.events) {
+                      _self.emit(i, {
+                        event: i,
+                        from: txReceipt.from,
+                        to: txReceipt.to,
+                        transactionHash: txReceipt.transactionHash,
+                        params: txReceipt.events[i].returnValues
+                      });
+                    }
+                    //Pop transaction from mempool
+                    _curInstance.pop('transactions', 'mempool', txReceipt.transactionHash);
+                    this.off('confirmation');
+                  }
+                })
+                .once('error', (error) => {
+                  _self.noQueue.emit('transaction-error', error);
+                });
+              resolve(gasAmount);
+            })
+            .catch((error) => {
+              reject(error);
+            });
+        });
+      },
+
+      /**
+       * @event Contract#tx-created Event will be triggered everytime a transaction created and signed
+       * @example
+       * let whitelistInstance = instanceContractInterface.getIntance('Whitelist');
+       * whitelistInstance.on('tx-created', function(transactionHash){
+       *    console.log(`Transaction os created with transaction hash: ${transactionHash}`);
+       * });
+       */
+
+      /**
+       * @event Contract#tx-receipted Event will be triggered once when transaction had been confirmed for the first time
+       * @example
+       * let whitelistInstance = instanceContractInterface.getIntance('Whitelist');
+       * whitelistInstance.on('tx-receipted', function(txReceipt){
+       *    console.log(`Transaction: ${txReceipt.transactionHash} found receipted`, txReceipt);
+       * });
+       */
+
+      /**
+       * @event Contract#tx-confirming Event will be triggered everytime transaction get new confirmation
+       * @example
+       * let whitelistInstance = instanceContractInterface.getIntance('Whitelist');
+       * whitelistInstance.on('tx-confirming', function(numOfConfirmation, txReceipt){
+       *    console.log(`Transaction: ${txReceipt.transactionHash} got [${numOfConfirmation}/6]`, txReceipt);
+       * });
+       */
+
+      /**
+       * @event Contract#contract-events Event will be triggered everytime smart contracts emit event
+       * @example
+       * let whitelistInstance = instanceContractInterface.getIntance('Whitelist');
+       * //Catch contract event
+       * whitelistInstance.on('WhitelistedAdded', (event) => {
+       *   console.log('New event:', event);
+       * });
+       */
+
+      /**
+       * Reigister event listener
+       * @param {String} eventName Name of event
+       * @param {Function} callback Callback function which will be triggered when event happened
+       * @example
+       * let instanceWhitelist = instanceContractInterface.getIntance('Whitelist');
+       * //Catch contract event
+       * whitelistInstance.on('WhitelistedAdded', (event) => {
+       *   console.log('New event', event);
+       * });
+       */
+      on: function (eventName, callback) {
+        if (typeof (callback) !== 'function') throw new TypeError('Invalid callback function');
+        if (typeof (this._events[eventName]) === 'undefined') {
+          this._events[eventName] = [callback];
+        } else {
+          this._events[eventName].push(callback);
+        }
+        return this;
+      },
+
+      /**
+       * Subscribe to event once
+       * @param {String} eventName Name of event
+       * @param {Function} callback Callback function
+       * @example
+       * let instanceWhitelist = instanceContractInterface.getIntance('Whitelist');
+       * //Subscribe of event once then disable,
+       * //if you want to subscribe again you better to trigger it again
+       * whitelistInstance.once('WhitelistedAdded', (event) => {
+       *   console.log('New event', event);
+       * });
+       */
+      once: function (eventName, callback) {
+        eventName = `___once_event_${eventName}`;
+        if (typeof (callback) !== 'function') throw new TypeError('Invalid callback function');
+        if (typeof (this._events[eventName]) === 'undefined') {
+          this._events[eventName] = [callback];
+        } else {
+          this._events[eventName].push(callback);
+        }
+        return this;
+      },
+
+      /**
+       * Emit event
+       * @param {String} eventName Event name which was registered
+       * @param {*} [params] Event's parameters
+       * @example
+       * let instanceWhitelist = instanceContractInterface.getIntance('Whitelist');
+       * //Fire an event which will be catched by `.on()` method
+       * whitelistInstance.emit('WhitelistedAdded', [
+       *     {
+       *       "event": "WhitelistedAdded",
+       *       "from": "0x12583f7627099d8c89a68112c15b83628e72cbe7",
+       *       "to": "0x69c7674610b7fcf082bac670ea7daa500d4f16a9",
+       *       "transactionHash": "0x0cfa55ca1498870d7f259878e1814d5c790a31b3922820b2d1f9fdcbcc952e31",
+       *       "params": {
+       *         "account": "0x21203C782EE48378Ff77Bae55c6cD6DdD277682F"
+       *       }
+       *     }
+       *   ]);
+       */
+      emit: function () {
+        let params = Array.from(arguments);
+        if (params.length === 0) return;
+        let eventName = params[0];
+        let eventOnceName = `___once_event_${eventName}`;
+        if (typeof this._events[eventName] !== 'undefined' &amp;&amp; Array.isArray(this._events[eventName])) {
+          for (let i = 0; i &lt; this._events[eventName].length; i++) {
+            let callback = this._events[eventName][i];
+            if (typeof callback === 'function') {
+              callback.apply(null, params.slice(1));
+            }
+          }
+        }
+        if (typeof this._events[eventOnceName] !== 'undefined' &amp;&amp; Array.isArray(this._events[eventOnceName])) {
+          for (let i = 0; i &lt; this._events[eventOnceName].length; i++) {
+            let callback = this._events[eventOnceName][i];
+            if (typeof callback === 'function') {
+              callback.apply(null, params.slice(1));
+            }
+          }
+          //After trigger then delete events listener
+          delete this._events[eventOnceName];
+        }
+        return this;
+      }
+    }
+
+    //Singleton of smart contract loader
+    if (typeof this._contractInstances[address] === 'undefined') {
+      this._contractInstances[address] = new Contract();
+    }
+    //Return loaded instance
+    return this._contractInstances[address];
+  },
+
+  /**
+   * Deploy PropertyToken to blockchain
+   * @param {String} deployer Address of deployer
+   * @param {String} owner  Address of token owner
+   * @param {String} tokenSymbol Symbol of token
+   * @param {String} tokenName Token name
+   * @param {Number} scenario Sale scenario of property token WHOLE (100% at once), 49%, ALL (100%)
+   * @example
+   * newInterface.deployPropertyToken(
+   *   newInterface.defaultAccount,                                 //Deployer address
+   *   newInterface.defaultAccount,                                 //Property token owner
+   *   "CPT_001",                                                   //Token symbol
+   *   "Chiro PropertyToken 001",                                   //Token name
+   *   newInterface.helper.scenarios.PROPERTY_TOKEN_SCENARIO_ALL    //Sale scenario
+   * ).then((contractInstance)=>{
+   *   console.log(`Smart contract was deployed at ${contractInstance._address}.`);
+   * }).catch((error)=>{
+   *   console.log(error);
+   * });
+   */
+  deployPropertyToken: function (deployer, owner, tokenSymbol, tokenName, scenario) {
+    let _self = this;
+    let instancePropertyToken = new this._web3.eth.Contract(this._abi['PropertyToken']);
+    return instancePropertyToken.deploy({
+      data: bytecode['PropertyToken'],
+      arguments: [
+        owner,
+        newInterface.utils.asciiToHex(tokenSymbol),
+        newInterface.utils.asciiToHex(tokenName),
+        scenario,
+        this.getContractAddress('Whitelist'),
+        this.getContractAddress('Exchange'),
+        this.getContractAddress('EscrowPayment'),
+        this.getContractAddress('EscrowTransaction')]
+    }).send({
+      gas: 3200000,
+      from: deployer
+    }).once('transactionHash', function (transactionHash) {
+      //Push transaction to mempool
+      _self._storage.push('mempool', transactionHash);
+    }).on('confirmation', function (numOfConfirmation, txReceipt) {
+      if (numOfConfirmation >= 6) {
+        //Pop transaction from mempool
+        _self.pop('transactions', 'mempool', txReceipt.transactionHash);
+        this.off('confirmation');
+      }
+    })
+  }
+
+};
+
+module.exports = ContractInterface;</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Classes</h3><ul><li><a href="Contract.html">Contract</a></li><li><a href="ContractInterface.html">ContractInterface</a></li><li><a href="ContractInterface_getIntance-Contract_call.html">call</a></li><li><a href="ContractInterface_getIntance-Contract_exec.html">exec</a></li><li><a href="noQueue.html">noQueue</a></li><li><a href="Storage.html">Storage</a></li></ul><h3>Events</h3><ul><li><a href="Contract.html#event:contract-eventsEventwillbetriggeredeverytimesmartcontractsemitevent">contract-events Event will be triggered everytime smart contracts emit event</a></li><li><a href="Contract.html#event:tx-confirmingEventwillbetriggeredeverytimetransactiongetnewconfirmation">tx-confirming Event will be triggered everytime transaction get new confirmation</a></li><li><a href="Contract.html#event:tx-createdEventwillbetriggeredeverytimeatransactioncreatedandsigned">tx-created Event will be triggered everytime a transaction created and signed</a></li><li><a href="Contract.html#event:tx-receiptedEventwillbetriggeredoncewhentransactionhadbeenconfirmedforthefirsttime">tx-receipted Event will be triggered once when transaction had been confirmed for the first time</a></li><li><a href="noQueue.html#event:metamask-updateMetamaskchagesitsstatusofconnection">metamask-update Metamask chages its status of connection</a></li><li><a href="noQueue.html#event:unwatchUnwatchingfortransactionreceipt">unwatch Unwatching for transaction receipt</a></li><li><a href="noQueue.html#event:watchWatchingfortransactionreceipt">watch Watching for transaction receipt</a></li></ul><h3>Global</h3><ul><li><a href="global.html#connected">connected</a></li><li><a href="global.html#helper">helper</a></li><li><a href="global.html#loader">loader</a></li><li><a href="global.html#version">version</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.5.5</a> on Mon Jan 28 2019 14:17:51 GMT+0700 (GMT+07:00)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>
