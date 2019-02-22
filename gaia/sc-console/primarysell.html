@@ -1,0 +1,203 @@
+<html>
+
+<head>
+  <title>Contract Interface - Primary Sell</title>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+
+<body>
+  <script type="text/javascript" src="./js/main.js"></script>
+  <script type="text/javascript" src="./common.js"></script>
+  <div class="group">
+    <a href="index.html">Tokenize</a>
+    <a href="whitelist.html">Whitelist</a>
+    <a href="primarysell.html">Primary Sell</a>
+    <a href="primarybuy.html">Primary Buy</a>
+    <a href="escrowpayment.html">Escrow Payment</a>
+  </div>
+  <div class="group">
+    <h3>Connect Metamask Wallet</h3>
+    <button id="buttonConnectWallet" onclick="connectWallet()">Connect Wallet</button>
+  </div>
+  <div class="group">
+    <h3>Add payment method (Manager)</h3>
+    <label>Stable Coin Address</label><br />
+    <input id="textAddress" size="40"><br />
+    <label>Stable Coin Metadata</label><br />
+    <input id="textData" size="40"><br />
+    <label>Stable Coin Decimals</label><br />
+    <input id="textDecimals" size="40"><br />
+    <button onclick="fillData()">Filling with test RUSD</button>
+    <button onclick="addPaymentMethod()">Add Payment Method</button>
+  </div>
+  <div class="group">
+    <h3>Remove payment method (Manager)</h3>
+    <label>Stable Coin Address</label><br />
+    <input id="textSCAddress" size="40"><br />
+    <button onclick="getTestSCAddress()">Get test RUSD address</button>
+    <button onclick="removePaymentMethod()">Remove Payment Method</button>
+  </div>
+  <div class="group">
+    <h3>Start Primary Sell (Manager)</h3>
+    <label>PropertyToken Address</label><br />
+    <input id="textPropertyTokenAddress" size="40"><br />
+    <button onclick="startPrimarySell()">Start primary sell</button>
+  </div>
+  <pre id="log"></pre>
+  <script type="text/javascript">
+    //Trigger wallet connect
+    connectWallet(function () {
+      //Get local instance of Exchange cotract
+      let instanceExchange = instanceCI.getInstance('Exchange');
+
+      //Watching for Exchange's event
+      //event PaymentMethodRemove(address indexed stableCoinAddress);
+      instanceExchange.on('PaymentMethodRemove', (event) => {
+        logger.info(`New event ${strty(event)}`);
+      });
+
+      //Watching for Exchange's event
+      //event PaymentMethodAdd(uint256 indexed methodId, bytes32 indexed metaData, uint256 indexed decimals);
+      instanceExchange.on('PaymentMethodAdd', (event) => {
+        logger.info(`New event ${strty(event)}`);
+      });
+
+      //Watching for Exchange's event
+      //event PaymentMethodAdd(uint256 indexed methodId, bytes32 indexed metaData, uint256 indexed decimals);
+      instanceExchange.on('NewOffer', (event) => {
+        logger.info(`New event ${strty(event)}`);
+      });
+
+      //Add event listener for Exchange's transactions
+      instanceExchange
+        .on('tx-created', (transactionHash, gasAmount) => {
+          logger.info(`Tx ${transactionHash} broadcasted`);
+        })
+        .on('tx-receipted', (txReceipt) => {
+          logger.info(`Received tx receipt ${strty(txReceipt)}`);
+        }).on('tx-confirming', (numOfConfirmation, txReceipt) => {
+          logger.warn(`Transaction got ${numOfConfirmation}/6 confimations`);
+        })
+        .on('tx-confirmed', (eventName, eventArguments, txInfo) => {
+          logger.info(`Transaction got 6 confimations (${eventName}, ${strty(eventArguments)})`);
+        })
+        .on('tx-error', (error) => {
+          logger.error(`Found tx error ${error.message}`);
+        });
+
+      //Trigged when transaction have new confirmation
+      eventHandler.on('confirm', function (confimation, txReceipt) {
+        logger.warn(`Transaction: ${txReceipt.transactionHash} got ${confimation}/6`);
+      });
+    });
+
+    //Fill payment method's metadata
+    function fillData() {
+      if (instanceCI === null) return;
+      let instanceStableCoin = instanceCI.getInstance('StableCoin');
+      textAddress.value = instanceStableCoin.getAddress();
+      textData.value = 'RUSD';
+      textDecimals.value = 18;
+    }
+
+    //Get test RUSD smart contract address
+    function getTestSCAddress() {
+      if (instanceCI === null) return;
+      let instanceStableCoin = instanceCI.getInstance('StableCoin');
+      textSCAddress.value = instanceStableCoin.getAddress();
+    }
+
+    //Get test RUSD smart contract address
+    function addPaymentMethod() {
+      if (instanceCI === null) return;
+      //Get local instance of Exchange contract
+      let instanceExchange = instanceCI.getInstance('Exchange');
+      instanceExchange.exec.paymentAdd(
+        textAddress.value,
+        instanceCI.utils.asciiToHex(textData.value),
+        textDecimals.value);
+    }
+
+    //Remove added payment method
+    function removePaymentMethod() {
+      if (instanceCI === null) return;
+      //Get local instance of Exchange contract
+      let instanceExchange = instanceCI.getInstance('Exchange');
+      instanceExchange.exec.paymentRemove(textSCAddress.value.toLowerCase());
+    }
+
+    //function primarySell(address  owner,
+    //  address  tokenAddress,
+    //  uint128  offerType,
+    //  uint128  startDate,
+    //  uint128  endDate,
+    //  uint256  amount,
+    //  uint256  price,
+    //  uint256  minimum) public returns (bool);
+    function startPrimarySell() {
+      //Get local instance of Exchange cotract
+      if (instanceCI === null) return;
+      (async () => {
+        let ptAddress = textPropertyTokenAddress.value.toLowerCase();
+
+        //Validating PropteryToken's address
+        if (!instanceCI.helper.isValidAddress(ptAddress)) return logger.error('PropertyToken\'s address is invalid');
+
+        let instanceExchange = instanceCI.getInstance('Exchange');
+        let instancePropertyToken = instanceCI.getInstance('PropertyToken', ptAddress);
+        let instanceWhitelist = instanceCI.getInstance('Whitelist');
+        let owner = await instancePropertyToken.call.propertyOwner();
+        let ownerBalance = instanceCI.utils.toBN(await instancePropertyToken.call.balanceOf(owner));
+
+        logger.log(`Loading PropertyToken's at: ${instancePropertyToken.getAddress()}`);
+        logger.log(`PropertyToken's name: ${instanceCI.utils.asciiToHex(await instancePropertyToken.call.name())}`);
+        logger.log(`PropertyToken's symbol: ${instanceCI.utils.asciiToHex(await instancePropertyToken.call.symbol())}`);
+        logger.log(`Owner addresss: ${owner}`);
+        logger.log(`Owner balance: ${ownerBalance.toString()}`);
+
+        //Owner's balance is insufficient
+        //We are only accept owner's balance is geater or equal to 1,000,000 PropetyToken
+        if (ownerBalance.lt(instanceCI.utils.toBN(1000000))) return logger.error('Owner\'s balance is insufficient');
+        logger.info('Owner\'s balance is sufficient');
+        if (!await instanceWhitelist.call.isWhitelisted(owner)) return logger.error('Owner was not whitelisted');
+        logger.info('Owner\'s address is whitelisted');
+        if (!await instanceWhitelist.call.isWhitelisted(ptAddress)) return logger.error('PropertyToken was not whitelisted');
+        logger.info('PropertyToken\'s address is whitelisted');
+
+        /**
+        * @dev Date.now() return timestamp in milliseconds we need to convert it 
+        * to Ethereum timestamp. Adding 30 seconds to makesure start date won't be scheduled in the past
+        */
+        let starDate = instanceCI.helper.toEthTimeStamp(Date.now()) + 30;
+        /**
+        * @dev End date will be 10 days later
+        */
+        let endDate = starDate + 10 * 24 * 60 * 60 * 1000;
+
+        instanceExchange.exec.primarySell(
+          //Owner address
+          owner,
+          //PropertyToken address
+          ptAddress,
+          //Offer type
+          instanceCI.helper.createOfferType({ ask: true, primary: true, available: true }),
+          //Start date - end date
+          starDate,
+          endDate,
+          //Maximum amount
+          1000000,
+          //Price 1000 = $0.1
+          1000,
+          //Maximum amount
+          100,
+        );
+      })();
+
+      //instanceExchange.exec.primarySell(owner, token, type, start, end, amount, price, minimum);
+    }
+
+  </script>
+</body>
+
+</html>

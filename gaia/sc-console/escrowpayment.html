@@ -1,0 +1,144 @@
+<html>
+
+<head>
+  <title>Contract Interface - Primary Sell</title>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+
+<body>
+  <script type="text/javascript" src="./js/main.js"></script>
+  <script type="text/javascript" src="./common.js"></script>
+  <div class="group">
+    <a href="index.html">Tokenize</a>
+    <a href="whitelist.html">Whitelist</a>
+    <a href="primarysell.html">Primary Sell</a>
+    <a href="primarybuy.html">Primary Buy</a>
+    <a href="escrowpayment.html">Escrow Payment</a>
+  </div>
+  <div class="group">
+    <h3>Connect Metamask Wallet</h3>
+    <button id="buttonConnectWallet" onclick="connectWallet()">Connect Wallet</button>
+  </div>
+  <div class="group">
+    <h3>Escrow Payment (Manager)</h3>
+    <table width="100%">
+      <thead>
+        <tr>
+          <td>TxID</td>
+          <td>offerID</td>
+          <td>propertyToken</td>
+          <td>amount</td>
+          <td>action</td>
+        </tr>
+      </thead>
+      <tbody id="escrowPayment"></tbody>
+    </table>
+    <button onclick="loadEscrowPayment(-5)">&#x27F5;</button>
+    <button onclick="loadEscrowPayment(0)">&#x27F3;</button>
+    <button onclick="loadEscrowPayment(5)">&#x27F6;</button>
+  </div>
+  <div class="group">
+    <h3>Take/buy an offer (Buyer)</h3>
+    <label>Transaction id list (e.g: 1,3,4,5)</label><br />
+    <input id="txIds" size="40"><br />
+    <button onclick="aproveAll()" class="approve">Arppove All</button>
+    <button onclick="refundAll()" class="refund">Refund All</button>
+  </div>
+  <pre id="log"></pre>
+  <script type="text/javascript">
+    let currentOffset = 0;
+    //Trigger wallet connect
+    connectWallet(function () {
+      //Get local instance of Exchange cotract
+      let instanceEscrowPayment = instanceCI.getInstance('EscrowPayment');
+
+      //Add event listener for Exchange's transactions
+      instanceEscrowPayment
+        .on('tx-created', (transactionHash, gasAmount) => {
+          logger.info(`Tx ${transactionHash} broadcasted`);
+        })
+        .on('tx-receipted', (txReceipt) => {
+          logger.info(`Received tx receipt`, txReceipt);
+        })
+        .on('tx-confirming', (numOfConfirmation, txReceipt) => {
+          logger.warn(`Transaction got ${numOfConfirmation}/6 confimations`);
+        })
+        .on('tx-confirmed', (eventName, eventArguments, txInfo) => {
+          logger.info(`Transaction got 6 confimations (${eventName}, ${strty(eventArguments)})`);
+        })
+        .on('tx-error', (error) => {
+          logger.error(`Found tx error ${error.message}`);
+        });
+
+      //Watching for Exchange's event
+      //event PaymentMethodAdd(uint256 indexed methodId, bytes32 indexed metaData, uint256 indexed decimals);
+      instanceEscrowPayment.on('ExecuteTransaction', (event) => {
+        logger.info(`New event ${strty(event)}`);
+      });
+
+      //Trigged when transaction have new confirmation
+      eventHandler.on('confirm', function (confimation, txReceipt) {
+        logger.warn(`Transaction: ${txReceipt.transactionHash} got ${confimation}/6`);
+      });
+    });
+
+    //Fill payment method's metadata
+    function loadEscrowPayment(offset) {
+      if (instanceCI === null) return;
+      (async () => {
+        //Get local instance of Exchange cotract
+        let html = [];
+        let instanceEscrowPayment = instanceCI.getInstance('EscrowPayment');
+        let totalTransaction = instanceCI.utils.toBN(await instanceEscrowPayment.call.totalTransaction()).toNumber();
+        currentOffset += offset;
+        if (currentOffset < 0) {
+          currentOffset = 0;
+        }
+        if (currentOffset >= totalTransaction) {
+          currentOffset = (totalTransaction - 5 >= 0) ? totalTransaction - 5 : 0
+        }
+        let limit = currentOffset + 5;
+        limit = (limit > totalTransaction) ? totalTransaction : limit;
+        for (let i = currentOffset; i < limit; i++) {
+          let transaction = await instanceEscrowPayment.call.pendingTransactions(i);
+          html.push(`<tr>
+        <td>${i}</td>
+        <td>${transaction.offerID}</td>
+        <td>${transaction.propertyToken.toLowerCase()}</td>
+        <td>${transaction.propertyTokenAmount}</td>
+        <td><button class="approve" onclick="approve(${i})">&#x2714;</button>|<button class="refund" onclick="refund(${i})">&#10007;</button></td>
+      </tr>`);
+        }
+        el('tbody#escrowPayment').innerHTML = html.join('\n');
+      })();
+    }
+
+    function approve(paymentId) {
+      if (instanceCI === null) return;
+      let instanceEscrowPayment = instanceCI.getInstance('EscrowPayment');
+      instanceEscrowPayment.exec.approve(paymentId);
+    }
+
+    function refund(paymentId) {
+      if (instanceCI === null) return;
+      let instanceEscrowPayment = instanceCI.getInstance('EscrowPayment');
+      instanceEscrowPayment.exec.refund(paymentId);
+    }
+
+    function aproveAll() {
+      if (instanceCI === null) return;
+      let instanceEscrowPayment = instanceCI.getInstance('EscrowPayment');
+      instanceEscrowPayment.exec.approveAll(txIds.value.split(',').map((v) => v.trim()|0));
+    }
+
+    function refundAll() {
+      if (instanceCI === null) return;
+      let instanceEscrowPayment = instanceCI.getInstance('EscrowPayment');
+      instanceEscrowPayment.exec.refundAll(txIds.value.split(',').map((v) => v.trim()|0));
+    }
+
+  </script>
+</body>
+
+</html>

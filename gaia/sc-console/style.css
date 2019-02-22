@@ -1,0 +1,51 @@
+* {
+  margin: 5px;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.group {
+  padding: 5px;
+  margin: 5px;
+  width: 40%;
+  border: 1px black solid;
+}
+
+thead>tr>td {
+  font-weight: bold;
+  text-transform: capitalize;
+}
+
+pre {
+  background: black;
+  color: white;
+  font-family: 'Courier New', Courier, monospace;
+  padding: 10px;
+  position: fixed;
+  width: 50%;
+  top: 0px;
+  right: 10px;
+  height: 95%;
+  margin: 0px;
+  overflow: scroll;
+  counter-reset: line;
+}
+
+input {
+  padding: 5px;
+}
+
+a, a:link, a:active {
+  text-decoration: none;
+  color: darkslategray;
+  font-weight: bold;
+}
+
+button.approve{
+  color: white;
+  background-color: green;
+}
+
+button.refund{
+  color: white;
+  background-color: red;
+}

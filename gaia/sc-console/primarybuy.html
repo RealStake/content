@@ -1,0 +1,218 @@
+<html>
+
+<head>
+  <title>Contract Interface - Primary Sell</title>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+
+<body>
+  <script type="text/javascript" src="./js/main.js"></script>
+  <script type="text/javascript" src="./common.js"></script>
+  <div class="group">
+    <a href="index.html">Tokenize</a>
+    <a href="whitelist.html">Whitelist</a>
+    <a href="primarysell.html">Primary Sell</a>
+    <a href="primarybuy.html">Primary Buy</a>
+    <a href="escrowpayment.html">Escrow Payment</a>
+  </div>
+  <div class="group">
+    <h3>Connect Metamask Wallet</h3>
+    <button id="buttonConnectWallet" onclick="connectWallet()">Connect Wallet</button>
+  </div>
+  <div class="group">
+    <h3>Offer loader (Buyer)</h3>
+    <table width="100%">
+      <thead>
+        <tr>
+          <td>offerId</td>
+          <td>tokenAddress</td>
+          <td>amount</td>
+          <td>price</td>
+          <td>minimum</td>
+        </tr>
+      </thead>
+      <tbody id="offerDat"></tbody>
+    </table>
+    <button onclick="refreshOffer()">Get 5 latest offers</button>
+  </div>
+  <div class="group">
+    <h3>Transfer RUSD (RUSD's tokenowners)</h3>
+    <label>Receiver</label><br />
+    <input id="textSCReceiver" size="40"><br />
+    <label>Amount of RUSD (e.g: 1000)</label><br />
+    <input id="textSCAmount" size="40"><br />
+    <button onclick="transfer()">Transfer RUSD</button>
+  </div>
+  <div class="group">
+    <h3>Take/buy an offer (Buyer)</h3>
+    <label>OfferId</label><br />
+    <input id="textOfferId" size="40"><br />
+    <label>StableCoin</label><br />
+    <select id="slctStableCoin"></select><br />
+    <label>Amount of PropertyToken</label><br />
+    <input id="textAmount" size="40"><br />
+    <button onclick="primaryBuy()">Buy an available offer</button>
+  </div>
+  <pre id="log"></pre>
+  <script type="text/javascript">
+    //Trigger wallet connect
+    connectWallet(function () {
+      //Get local instance of Exchange cotract
+      let instanceExchange = instanceCI.getInstance('Exchange');
+      let instanceStableCoin = instanceCI.getInstance('StableCoin');
+
+      //Add event listener for Exchange's transactions
+      instanceExchange
+        .on('tx-created', (transactionHash, gasAmount) => {
+          logger.info(`[Exchange] Tx ${transactionHash} broadcasted`);
+        })
+        .on('tx-receipted', (txReceipt) => {
+          logger.info(`[Exchange] Received tx receipt`, txReceipt);
+        })
+        .on('tx-confirming', (numOfConfirmation, txReceipt) => {
+          logger.warn(`[Exchange] Transaction got ${numOfConfirmation}/6 confimations`);
+        })
+        .on('tx-confirmed', (eventName, eventArguments, txInfo) => {
+          logger.info(`[Exchange] Transaction got 6 confimations (${eventName}, ${strty(eventArguments)})`);
+        })
+        .on('tx-error', (error) => {
+          logger.error(`[Exchange] Found tx error ${error.message}`);
+        });
+
+      //Add event listener for StableCoin
+      instanceStableCoin
+        .on('tx-created', (transactionHash, gasAmount) => {
+          logger.info(`[StableCoin] Tx ${transactionHash} broadcasted`);
+        })
+        .on('tx-receipted', (txReceipt) => {
+          logger.info(`[StableCoin] Received tx receipt`, txReceipt);
+        })
+        .on('tx-confirming', (numOfConfirmation, txReceipt) => {
+          logger.warn(`[StableCoin] Transaction got ${numOfConfirmation}/6 confimations`);
+        })
+        .on('tx-confirmed', (eventName, eventArguments, txInfo) => {
+          logger.info(`[StableCoin] Transaction got 6 confimations (${eventName}, ${strty(eventArguments)})`);
+        })
+        .on('tx-error', (error) => {
+          logger.error(`[StableCoin] Found tx error ${error.message}`);
+        });
+
+      //Watching for Exchange's event
+      //event PaymentMethodAdd(uint256 indexed methodId, bytes32 indexed metaData, uint256 indexed decimals);
+      instanceExchange.on('Take', (event) => {
+        logger.info(`New event ${strty(event)}`);
+      });
+
+      (async () => {
+        let instanceStableCoin = instanceCI.getInstance('StableCoin');
+        let balance = instanceCI.utils.toBN(await instanceStableCoin.call.balanceOf(instanceCI.defaultAccount));
+        let symbol = await instanceStableCoin.call.symbol();
+        let decimals = instanceCI.utils.toBN(await instanceStableCoin.call.decimals()).toNumber();
+        balance = balance.div(instanceCI.utils.toBN(`1${('0').repeat(decimals)}`));
+        var option = document.createElement("option");
+        option.text = `${symbol} (${printNum(balance.toString())})`;
+        option.value = instanceStableCoin.getAddress();
+        el('#slctStableCoin').add(option);
+      })();
+
+      //Trigged when transaction have new confirmation
+      eventHandler.on('confirm', function (confimation, txReceipt) {
+        logger.warn(`Transaction: ${txReceipt.transactionHash} got ${confimation}/6`);
+      });
+    });
+
+    //Fill payment method's metadata
+    function refreshOffer() {
+      if (instanceCI === null) return;
+      (async () => {
+        //Get local instance of Exchange cotract
+        let html = [];
+        let instanceExchange = instanceCI.getInstance('Exchange');
+        let totalOffer = instanceCI.utils.toBN(await instanceExchange.call.totalOffer()).toNumber();
+        for (let i = (totalOffer - 5 >= 0) ? totalOffer - 5 : 0; i < totalOffer; i++) {
+          let offerData = await instanceExchange.call.offerData(i);
+          html.push(`<tr>
+        <td>${i}</td>
+        <td>${offerData.tokenAddress.toLowerCase()}</td>
+        <td>${offerData.amount}</td>
+        <td>${offerData.price}</td>
+        <td>${offerData.minimum}</td>
+      </tr>`);
+        }
+        el('tbody#offerDat').innerHTML = html.join('\n');
+      })();
+    }
+
+    //function primaryBuy(uint256  id,
+    //  address  stableCoinAddress,
+    //  uint256  amount) public returns (bool);
+    function primaryBuy() {
+      //Get local instance of Exchange cotract
+      if (instanceCI === null) return;
+      (async () => {
+
+        let instanceExchange = instanceCI.getInstance('Exchange');
+        let instanceWhitelist = instanceCI.getInstance('Whitelist');
+        let instanceStableCoin = instanceCI.getInstance('StableCoin');
+        let totalOffer = instanceCI.utils.toBN(await instanceExchange.call.totalOffer()).toNumber();
+        let ownerBalance = instanceCI.utils.toBN(await instanceStableCoin.call.balanceOf(instanceCI.defaultAccount));
+
+        if (!(/^[0-9]+$/ig).test(textOfferId.value)) return logger.error('Invalid offerId');
+        if ((textOfferId.value | 0) >= totalOffer) return logger.error('Input offerId is larger than total offerId');
+
+        let offerData = await instanceExchange.call.offerData((textOfferId.value | 0));
+        logger.log(`Offer data: ${strty(offerData)}`);
+        if (instanceCI.helper.toTimeStamp(offerData.startDate) >= instanceCI.helper.ethTimeStampNow()) return logger.error(`Offer was not started, checkback later: ${(new Date(instanceCI.helper.toTimeStamp(offerData.startDate) * 1000)).toLocaleString()}`);
+        if (instanceCI.helper.toTimeStamp(offerData.endDate) < instanceCI.helper.ethTimeStampNow()) return logger.error(`Offer was ended at: ${(new Date(instanceCI.helper.toTimeStamp(offerData.endDate) * 1000)).toLocaleString()}`);
+
+        let offerType = instanceCI.helper.getOfferType(offerData.offerType | 0);
+        if (!(offerType.ask && offerType.available && offerType.primary)) return logger.error('Offer\'s type is insufficient');
+
+        if (!await instanceWhitelist.call.isWhitelisted(instanceCI.defaultAccount)) return logger.error('Buyer was not whitelisted');
+
+        if (!(/^[0-9]+$/ig).test(textAmount.value)) return logger.error('Invalid amount');
+        if ((textAmount.value | 0) > (offerData.amount | 0)) return logger.error('Amount of PropertyToken was larger than available');
+        if ((textAmount.value | 0) < (offerData.minimum | 0)) return logger.error('Amount of PropertyToken was lower than minimum');
+
+        let stableCoinRatio = instanceCI.utils.toBN(await instanceExchange.call.calculatePrice(instanceStableCoin.getAddress(), (offerData.price | 0)));
+        console.log(stableCoinRatio.toString());
+        let requireDelegateStableCoin = stableCoinRatio.mul(instanceCI.utils.toBN(textAmount.value | 0));
+
+        //Check owner balance
+        if (ownerBalance.lt(requireDelegateStableCoin)) return logger.error('Insufficient stable coin balance');
+
+        //Make sure there are no error
+        requireDelegateStableCoin = requireDelegateStableCoin.add(instanceCI.utils.toBN(1));
+
+        //Allow exchange to move stable coin
+        logger.info('Buyer delegate StableCoin to Exchange');
+        instanceStableCoin.exec.approve(instanceExchange.getAddress(), `0x${requireDelegateStableCoin.toString(16)}`);
+
+        instanceStableCoin.once('tx-confirmed', function () {
+          logger.info('Buyer take an offer in Exchange');
+          instanceExchange.exec.primaryBuy((textOfferId.value | 0), instanceStableCoin.getAddress(), (textAmount.value | 0));
+        });
+
+      })();
+    }
+
+    function transfer() {
+      //Get local instance of Exchange cotract
+      if (instanceCI === null) return;
+      (async () => {
+        let instanceStableCoin = instanceCI.getInstance('StableCoin');
+        let value = instanceCI.utils.toBN(textSCAmount.value).mul(instanceCI.utils.toBN('1000000000000000000'));
+        let ownerBalance = instanceCI.utils.toBN(await instanceStableCoin.call.balanceOf(instanceCI.defaultAccount));
+
+        if (ownerBalance.lt(value)) return logger.error('Insufficient stable coin balance');
+        logger.info(`Transfer ${textSCAmount.value} RUSD to ${textSCReceiver.value}`);
+        await instanceStableCoin.exec.transfer(textSCReceiver.value, `0x${value.toString(16)}`);
+
+      })();
+    }
+
+  </script>
+</body>
+
+</html>

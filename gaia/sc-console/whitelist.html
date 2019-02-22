@@ -1,0 +1,85 @@
+<html>
+
+<head>
+  <title>Contract Interface - Whitelist</title>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+
+<body>
+  <script type="text/javascript" src="./js/main.js"></script>
+  <script type="text/javascript" src="./common.js"></script>
+  <div class="group">
+    <a href="index.html">Tokenize</a>
+    <a href="whitelist.html">Whitelist</a>
+    <a href="primarysell.html">Primary Sell</a>
+    <a href="primarybuy.html">Primary Buy</a>
+    <a href="escrowpayment.html">Escrow Payment</a>
+  </div>
+  <div class="group">
+    <h3>Connect Metamask Wallet</h3>
+    <button id="buttonConnectWallet" onclick="connectWallet()">Connect Wallet</button>
+  </div>
+  <div class="group">
+    <h3>Whitelist an address (Manager)</h3>
+    <label>Address to whitelist:</label><br />
+    <input id="textAddress" size="40"><br />
+    <button onclick="addWhitelistAddress()">Whitelist Address</button>
+  </div>
+
+  <pre id="log"></pre>
+  <script type="text/javascript">
+    //Trigger wallet connect
+    connectWallet(function () {
+      //Get local instance of whitelist contract
+      let instanceWhitelist = instanceCI.getInstance('Whitelist');
+
+      //Watching for whitelist event even browser crash
+      instanceWhitelist.on('WhitelistedAdded', (event) => {
+        logger.info(`New event ${strty(event)}`);
+      });
+
+      //Add event listener for whitelist's transactions
+      instanceWhitelist
+        .on('tx-created', (transactionHash, gasAmount) => {
+          logger.info(`Tx ${transactionHash} broadcasted`);
+        })
+        .on('tx-receipted', (txReceipt) => {
+          logger.info(`Received tx receipt`, txReceipt);
+        }).on('tx-confirming', (numOfConfirmation, txReceipt) => {
+          logger.warn(`Transaction got ${numOfConfirmation}/6 confimations`);
+        })
+        .on('tx-confirmed', (eventName, eventArguments, txInfo) => {
+          logger.info(`Transaction got 6 confimations (${eventName}, ${strty(eventArguments)})`);
+        })
+        .on('tx-error', (error) => {
+          logger.error(`Found tx error ${error.message}`);
+        });
+
+      //Trigged when transaction have new confirmation
+      eventHandler.on('confirm', function (confimation, txReceipt) {
+        logger.warn(`Transaction: ${txReceipt.transactionHash} got ${confimation}/6`);
+      });
+    });
+
+    //Whitelist an address
+    function addWhitelistAddress() {
+      if (instanceCI === null) return;
+      //textAddress.value = instanceCI.utils.randomHex(30).substr(0, 42);
+      let instanceWhitelist = instanceCI.getInstance('Whitelist');
+
+      //Trigger Whitelist.addWhitelisted(addres _address);
+      instanceWhitelist.exec
+        .addWhitelisted(textAddress.value)
+        .then((gasAmount) => {
+          logger.log(`Estimated gas ${gasAmount} Gas`);
+        })
+        .catch((error) => {
+          console.log(error);
+          logger.error(`${error.message}`);
+        });
+    }
+  </script>
+</body>
+
+</html>
