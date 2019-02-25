@@ -49,7 +49,7 @@
   <script type="text/javascript">
     let currentOffset = 0;
     //Trigger wallet connect
-    connectWallet(function () {
+    connectWallet(async function () {
       //Get local instance of Exchange cotract
       let instanceEscrowPayment = instanceCI.getInstance('EscrowPayment');
 
@@ -81,6 +81,8 @@
       eventHandler.on('confirm', function (confimation, txReceipt) {
         logger.warn(`Transaction: ${txReceipt.transactionHash} got ${confimation}/6`);
       });
+
+      currentOffset = instanceCI.utils.toBN(await instanceEscrowPayment.call.totalTransaction()).toNumber();
     });
 
     //Fill payment method's metadata
