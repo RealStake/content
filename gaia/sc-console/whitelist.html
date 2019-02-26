@@ -21,10 +21,15 @@
     <button id="buttonConnectWallet" onclick="connectWallet()">Connect Wallet</button>
   </div>
   <div class="group">
+    <h3>List of whitelisted</h3>
+    <textarea id="textWhitelist" cols="90" rows="25" disabled></textarea>
+  </div>
+  <div class="group">
     <h3>Whitelist an address (Manager)</h3>
     <label>Address to whitelist:</label><br />
     <input id="textAddress" size="40"><br />
     <button onclick="addWhitelistAddress()">Whitelist Address</button>
+    <button onclick="refresh()">Refresh Whitelist Data</button>
   </div>
 
   <pre id="log"></pre>
@@ -77,6 +82,17 @@
         .catch((error) => {
           console.log(error);
           logger.error(`${error.message}`);
+        });
+    }
+
+    function refresh() {
+      fetch('https://api-rinkeby.etherscan.io/api?module=logs&action=getLogs&fromBlock=0&toBlock=latest&address=0x69c7674610b7fcf082bac670ea7daa500d4f16a9&topic0=0xee1504a83b6d4a361f4c1dc78ab59bfa30d6a3b6612c403e86bb01ef2984295f')
+        .then((v) => {
+          v.json().then((r) => {
+            textWhitelist.value = (r.result.map((i) => {
+              return `0x${i.topics[1].substr(i.topics[1].length - 40)}`;
+            }).join('\n'));
+          });
         });
     }
   </script>
