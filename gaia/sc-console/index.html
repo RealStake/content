@@ -46,7 +46,7 @@
     connectWallet(function () {
       //Trigged when transaction have new confirmation
       eventHandler.on('confirm', function (confimation, txReceipt) {
-        logger.warn(`Transaction: ${txReceipt.transactionHash} got ${confimation}/6`);
+        logger.warn(`Transaction: ${txReceipt.transactionHash} got ${confimation}/${instanceCI._maxConfirmation}`);
       });
       //Trigged when contract deployment got 6 confirmations
       eventHandler.on('contract-deployed', function (txReceipt) {
@@ -67,7 +67,7 @@
           logger.warn(`Property token deploy in transaction ${txHash}`);
         })
         .on('confirmation', function (numOfConfirmation, txReceipt) {
-          logger.warn(`Confirmations: ${numOfConfirmation}/6 deployed at: ${(typeof txReceipt.contractAddress !== 'undefined') ? txReceipt.contractAddress : 'undefined'}`);
+          logger.warn(`Confirmations: ${numOfConfirmation}/${instanceCI._maxConfirmation} deployed at: ${(typeof txReceipt.contractAddress !== 'undefined') ? txReceipt.contractAddress : 'undefined'}`);
         })
         .catch(function (error) {
           logger.error('User reject sign transaction');

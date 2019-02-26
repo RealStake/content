@@ -71,10 +71,10 @@
           logger.info(`[Exchange] Received tx receipt`, txReceipt);
         })
         .on('tx-confirming', (numOfConfirmation, txReceipt) => {
-          logger.warn(`[Exchange] Transaction got ${numOfConfirmation}/6 confimations`);
+          logger.warn(`[Exchange] Transaction got ${numOfConfirmation}/${instanceCI._maxConfirmation} confimations`);
         })
         .on('tx-confirmed', (eventName, eventArguments, txInfo) => {
-          logger.info(`[Exchange] Transaction got 6 confimations (${eventName}, ${strty(eventArguments)})`);
+          logger.info(`[Exchange] Transaction got ${instanceCI._maxConfirmation} confimations (${eventName}, ${strty(eventArguments)})`);
         })
         .on('tx-error', (error) => {
           logger.error(`[Exchange] Found tx error ${error.message}`);
@@ -89,10 +89,10 @@
           logger.info(`[StableCoin] Received tx receipt`, txReceipt);
         })
         .on('tx-confirming', (numOfConfirmation, txReceipt) => {
-          logger.warn(`[StableCoin] Transaction got ${numOfConfirmation}/6 confimations`);
+          logger.warn(`[StableCoin] Transaction got ${numOfConfirmation}/${instanceCI._maxConfirmation} confimations`);
         })
         .on('tx-confirmed', (eventName, eventArguments, txInfo) => {
-          logger.info(`[StableCoin] Transaction got 6 confimations (${eventName}, ${strty(eventArguments)})`);
+          logger.info(`[StableCoin] Transaction got ${instanceCI._maxConfirmation} confimations (${eventName}, ${strty(eventArguments)})`);
         })
         .on('tx-error', (error) => {
           logger.error(`[StableCoin] Found tx error ${error.message}`);
@@ -118,7 +118,7 @@
 
       //Trigged when transaction have new confirmation
       eventHandler.on('confirm', function (confimation, txReceipt) {
-        logger.warn(`Transaction: ${txReceipt.transactionHash} got ${confimation}/6`);
+        logger.warn(`Transaction: ${txReceipt.transactionHash} got ${confimation}/${instanceCI._maxConfirmation}`);
       });
     });
 

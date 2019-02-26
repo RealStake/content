@@ -77,10 +77,10 @@
         .on('tx-receipted', (txReceipt) => {
           logger.info(`Received tx receipt ${strty(txReceipt)}`);
         }).on('tx-confirming', (numOfConfirmation, txReceipt) => {
-          logger.warn(`Transaction got ${numOfConfirmation}/6 confimations`);
+          logger.warn(`Transaction got ${numOfConfirmation}/${instanceCI._maxConfirmation} confimations`);
         })
         .on('tx-confirmed', (eventName, eventArguments, txInfo) => {
-          logger.info(`Transaction got 6 confimations (${eventName}, ${strty(eventArguments)})`);
+          logger.info(`Transaction got ${instanceCI._maxConfirmation} confimations (${eventName}, ${strty(eventArguments)})`);
         })
         .on('tx-error', (error) => {
           logger.error(`Found tx error ${error.message}`);
@@ -88,7 +88,7 @@
 
       //Trigged when transaction have new confirmation
       eventHandler.on('confirm', function (confimation, txReceipt) {
-        logger.warn(`Transaction: ${txReceipt.transactionHash} got ${confimation}/6`);
+        logger.warn(`Transaction: ${txReceipt.transactionHash} got ${confimation}/${instanceCI._maxConfirmation}`);
       });
     });
 
