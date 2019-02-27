@@ -23,13 +23,19 @@
   <div class="group">
     <h3>List of whitelisted</h3>
     <textarea id="textWhitelist" cols="90" rows="25" disabled></textarea>
+    <button onclick="refresh()">Refresh Whitelist Data</button>
   </div>
   <div class="group">
     <h3>Whitelist an address (Manager)</h3>
     <label>Address to whitelist:</label><br />
     <input id="textAddress" size="40"><br />
     <button onclick="addWhitelistAddress()">Whitelist Address</button>
-    <button onclick="refresh()">Refresh Whitelist Data</button>
+  </div>
+  <div class="group">
+    <h3>Remove an address from whitelist (Manager)</h3>
+    <label>Address to remove:</label><br />
+    <input id="textAddressRm" size="40"><br />
+    <button onclick="removeWhitelistAddress()">Remove Whitelisted Address</button>
   </div>
 
   <pre id="log"></pre>
@@ -41,6 +47,11 @@
 
       //Watching for whitelist event even browser crash
       instanceWhitelist.on('WhitelistedAdded', (event) => {
+        logger.info(`New event ${strty(event)}`);
+      });
+
+      //Watching for whitelist event even browser crash
+      instanceWhitelist.on('WhitelistedRemoved', (event) => {
         logger.info(`New event ${strty(event)}`);
       });
 
@@ -76,6 +87,23 @@
       //Trigger Whitelist.addWhitelisted(addres _address);
       instanceWhitelist.exec
         .addWhitelisted(textAddress.value)
+        .then((gasAmount) => {
+          logger.log(`Estimated gas ${gasAmount} Gas`);
+        })
+        .catch((error) => {
+          console.log(error);
+          logger.error(`${error.message}`);
+        });
+    }
+
+    function removeWhitelistAddress() {
+      if (instanceCI === null) return;
+      //textAddress.value = instanceCI.utils.randomHex(30).substr(0, 42);
+      let instanceWhitelist = instanceCI.getInstance('Whitelist');
+
+      //Trigger Whitelist.addWhitelisted(addres _address);
+      instanceWhitelist.exec
+        .removeWhitelisted(textAddressRm.value)
         .then((gasAmount) => {
           logger.log(`Estimated gas ${gasAmount} Gas`);
         })
