@@ -7,7 +7,7 @@
   padding: 5px;
   margin: 5px;
   width: 40%;
-  border: 1px black solid;
+  border: 1px #90caf9 solid;
 }
 
 thead>tr>td {
@@ -42,10 +42,19 @@ a, a:link, a:active {
 
 button.approve{
   color: white;
-  background-color: green;
+  background-color: #43a047;
 }
 
 button.refund{
   color: white;
-  background-color: red;
+  background-color: #e53935;
+}
+
+button {
+  border-radius: 5px;
+  padding: 8px;
+  color: #fff;
+  border: 1px solid #0288d1;
+  background-color: #039be5;
+  font-weight: bold;
 }

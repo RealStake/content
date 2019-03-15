@@ -63,8 +63,19 @@ addEvent(window, 'resize', function () {
 
 function connectWallet(callback) {
   (async function () {
+
+    let selectedNet = localStorage.getItem('selected-network');
+    if (selectedNet) {
+      el('#selectNetwork').value = selectedNet;
+    }
+
+    el('#selectNetwork').addEventListener('change', function () {
+      localStorage.setItem('selected-network', this.value);
+      location.reload();
+    }, false);
+
     //Create new interface of contract for rinkeby-develop
-    instanceCI = ContractInterface('rinkeby-develop');
+    instanceCI = ContractInterface(selectedNet || 'rinkeby-develop');
     if (typeof instanceCI.executed === 'undefined') instanceCI.executed = false;
 
     //Global event handler
@@ -79,7 +90,7 @@ function connectWallet(callback) {
     //Connect wallet
     let accounts = await instanceCI.connect();
     if (instanceCI.connected) {
-      logger.info(`Accounts:  ${accounts}`);
+      logger.info(`Accounts:  ${accounts} network (${selectedNet})`);
       //Request for Ethereum balance
       let balance = instanceCI.utils.toBN(await instanceCI.getBalance(instanceCI.defaultAccount));
       if (balance) {

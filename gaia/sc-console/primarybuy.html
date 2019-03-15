@@ -17,6 +17,13 @@
     <a href="escrowpayment.html">Escrow Payment</a>
   </div>
   <div class="group">
+    <label>Select Network:</label><br />
+    <select id="selectNetwork">
+      <option value="rinkeby-develop">Rinkeby Develop</option>
+      <option value="rinkeby-staging">Rinkeby Staging</option>
+    </select>
+  </div>
+  <div class="group">
     <h3>Connect Metamask Wallet</h3>
     <button id="buttonConnectWallet" onclick="connectWallet()">Connect Wallet</button>
   </div>
@@ -165,7 +172,6 @@
         logger.log(`Offer data: ${strty(offerData)}`);
         if (instanceCI.helper.toTimeStamp(offerData.startDate) >= instanceCI.helper.ethTimeStampNow()) return logger.error(`Offer was not started, checkback later: ${(new Date(instanceCI.helper.toTimeStamp(offerData.startDate) * 1000)).toLocaleString()}`);
         if (instanceCI.helper.toTimeStamp(offerData.endDate) < instanceCI.helper.ethTimeStampNow()) return logger.error(`Offer was ended at: ${(new Date(instanceCI.helper.toTimeStamp(offerData.endDate) * 1000)).toLocaleString()}`);
-
         let offerType = instanceCI.helper.getOfferType(offerData.offerType | 0);
         if (!(offerType.ask && offerType.available && offerType.primary)) return logger.error('Offer\'s type is insufficient');
 
