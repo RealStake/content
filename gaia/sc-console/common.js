@@ -73,9 +73,11 @@ function connectWallet(callback) {
       localStorage.setItem('selected-network', this.value);
       location.reload();
     }, false);
+    
+    selectedNet = selectedNet || 'rinkeby-develop';
 
     //Create new interface of contract for rinkeby-develop
-    instanceCI = ContractInterface(selectedNet || 'rinkeby-develop');
+    instanceCI = ContractInterface(selectedNet);
     if (typeof instanceCI.executed === 'undefined') instanceCI.executed = false;
 
     //Global event handler
