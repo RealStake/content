@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Roll It</title>
+</head>
+<style>
+  body {
+    align-content: center;
+    align-items: center;
+    text-align: center;
+  }
+
+  input,
+  button {
+    width: 320px;
+    height: 100px;
+    font-size: 80px;
+    text-align: center;
+  }
+</style>
+
+<body>
+  <input id="textRolled" disabled><br /><br />
+  <button onclick="random()">Roll</button>
+  <script type="text/javascript">
+    function random() {
+      while (true) {
+        let v = '';
+        for (let i = 0; i < 5; i++) {
+          v += String.fromCharCode(97 + parseInt(Math.random() * 122));
+          if (v.length === 1) {
+            v = v.toLocaleUpperCase();
+          }
+        }
+        if ((/[A-Z][aeuoi][aeuoirmn][aeuoirmnvy][ghty]/g).test(v)) {
+          textRolled.value = v;
+          break;
+        }
+      }
+    }
+    random();
+  </script>
+</body>
+
+</html>
